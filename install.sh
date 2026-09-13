@@ -94,5 +94,5 @@ esac
 cat <<'EOF'
 :: next steps (run inside the target repo):
      sortie-loop setup    # writes .sortie/config.yaml, creates labels
-     sortie-loop          # run plan + dev + review loops (Ctrl-C stops all)
+     sortie-loop          # run plan + dev + review + review-fix + merge loops (Ctrl-C stops all)
 EOF

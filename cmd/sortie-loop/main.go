@@ -36,7 +36,7 @@ func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "help") {
 		fmt.Println("Usage: sortie-loop [--no-server] [repo-root]")
 		fmt.Println("         sortie-loop setup [repo-root] [--repo=owner/name]")
-		fmt.Println("  Run plan, dev, and review loops against the repo at repo-root (default: cwd).")
+		fmt.Println("  Run plan, dev, review, review-fix, and merge loops against the repo at repo-root (default: cwd).")
 		fmt.Println("  Settings live in <root>/.sortie/config.yaml; repo id defaults to the git remote.")
 		fmt.Println("  Settings live in <root>/.sortie/config.yaml; repo id defaults to the git remote.")
 		os.Exit(0)
@@ -81,12 +81,14 @@ func main() {
 		{"plan", "WORKFLOW.plan.md", cfg.Filters["plan"]},
 		{"dev", "WORKFLOW.dev.md", cfg.Filters["dev"]},
 		{"review", "WORKFLOW.review.md", cfg.Filters["review"]},
+		{"review-fix", "WORKFLOW.review-fix.md", cfg.Filters["review-fix"]},
+		{"merge", "WORKFLOW.merge.md", cfg.Filters["merge"]},
 	}
 	// ponytail: one shared HTTP port across loops would collide; give each
 	// loop its own (--no-server passes --port 0 to disable entirely).
-	ports := []string{"7678", "7679", "7680"}
+	ports := []string{"7678", "7679", "7680", "7681", "7682"}
 	if noServer {
-		ports = []string{"0", "0", "0"}
+		ports = []string{"0", "0", "0", "0", "0"}
 	}
 	var procs []*exec.Cmd
 	defer func() {

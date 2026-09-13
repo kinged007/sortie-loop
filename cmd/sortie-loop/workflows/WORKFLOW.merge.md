@@ -3,12 +3,10 @@ tracker:
   kind: github-pr
   api_key: $SORTIE_TRACKER_API_KEY
   project: $SORTIE_TRACKER_PROJECT
-  # -label:needs-human keeps escalated PRs out; the github-pr adapter
-  # matches the exclusion client-side (the /pulls path runs no search).
   query_filter: "assignee:@me -label:needs-human"
-  active_states: [agent:needs-review]
-  in_progress_state: agent:needs-review
-  handoff_state: agent:reviewed
+  active_states: [agent:merge]
+  in_progress_state: agent:merge
+  handoff_state: agent:merged
   handoff_evidence: off
   terminal_states: [agent:review-complete]
   comments:
@@ -17,10 +15,10 @@ tracker:
 polling:
   interval_ms: 60000
 
-db_path: .sortie-review.db
+db_path: .sortie-merge.db
 
 workspace:
-  root: $SORTIE_LOOP_WORKSPACES/review
+  root: $SORTIE_LOOP_WORKSPACES/merge
   retention_days: 30
 
 hooks:
@@ -33,7 +31,7 @@ hooks:
 agent:
   kind: pi
   command: pi
-  max_turns: 3
+  max_turns: 10
   max_concurrent_agents: 1
   turn_timeout_ms: 1800000
   read_timeout_ms: 10000
@@ -46,13 +44,13 @@ pi:
 
 dispatch:
   default:
-    template: ./prompts/review.md
+    template: ./prompts/merge.md
 ---
 
-{{/* Review loop: label a PR `agent:needs-review` to get a three-pass
-     review. The prompt lives in prompts/review.md (via dispatch default
-     above): Step 4 applies `agent:build` to the PR when the review is
-     not clean, routing it to the review-fix loop. Completion swaps the
-     label to `agent:reviewed`; apply `agent:review-complete` when done
-     with the feedback. */}}
-Review loop routing only — the prompt comes from the dispatch template.
+{{/* Merge loop: label an approved PR `agent:merge` to have the agent
+     read the PR plus all comments/reviews, file follow-up issues for
+     remaining findings, and merge the branch. The prompt lives in
+     prompts/merge.md (via dispatch default above). Completion swaps the
+     label to `agent:merged`; on conflicts the agent labels `needs-human`
+     and the loop drops the PR via its `-label:needs-human` exclusion. */}}
+Merge loop routing only — the prompt comes from the dispatch template.
