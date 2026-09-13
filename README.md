@@ -50,13 +50,19 @@ moving the checkout or forking needs no reconfiguration.
 repo: ""        # empty = detect from git remote; or pin owner/name
 token: ""       # empty = GITHUB_TOKEN / GH_TOKEN env
 milestone: ""   # optional milestone title to restrict all loops to
+#assignee: ""   # unset = @me (token owner only); "" = shared backlog
 ```
 
 Env overrides: `SORTIE_LOOP_REPO`, `SORTIE_LOOP_TOKEN`,
-`SORTIE_LOOP_MILESTONE` (plus `GH_MILESTONE` as a legacy alias).
+`SORTIE_LOOP_MILESTONE` (plus `GH_MILESTONE` as a legacy alias),
+`SORTIE_LOOP_ASSIGNEE` (overrides `assignee:`).
 Flags: `--no-server` disables the per-loop HTTP debug ports (7678-7680).
 
 ## Loops
+
+All three loops default to items assigned to the token owner
+(`assignee:@me` appended to each query filter). Set `assignee: ""` in
+config (or `SORTIE_LOOP_ASSIGNEE=""`) for a shared backlog.
 
 Three sortie loops: `plan` writes an implementation plan as
 an issue comment (a human removes `agent:plan-needed` to approve);

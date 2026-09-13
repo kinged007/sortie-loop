@@ -57,7 +57,11 @@ func runSetup(dir string) {
 			"# Token for the tracker. Empty = GITHUB_TOKEN/GH_TOKEN env.\n" +
 			"token: \"\"\n" +
 			"# Optional milestone title to restrict all loops to (empty = off).\n" +
-			"milestone: \"\"\n"
+			"milestone: \"\"\n" +
+			"# Assignee scope for all loops. Default (unset) = @me, the token\n" +
+			"# owner; only items assigned to that user are picked up. Set to\n" +
+			"# \"\" to disable (shared backlog).\n" +
+			"#assignee: \"\"\n"
 		if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
 			fatal(err)
 		}
@@ -87,7 +91,7 @@ func runSetup(dir string) {
 // ensureGitignore appends the loop's local-state entries to .gitignore,
 // creating the file if missing. Existing content is left untouched.
 func ensureGitignore(dir string) {
-	want := []string{".sortie/.env.loop", ".sortie/workspaces/", ".sortie-*.db", "sortie-loop"}
+	want := []string{".sortie/.env.loop", ".sortie/workflows/", ".sortie/workspaces/", ".sortie-*.db", "sortie-loop"}
 	path := filepath.Join(dir, ".gitignore")
 	raw, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {

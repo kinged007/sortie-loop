@@ -26,6 +26,7 @@ func TestLoadEnvAndMilestone(t *testing.T) {
 	t.Setenv("SORTIE_LOOP_REPO", "o/r")
 	t.Setenv("SORTIE_LOOP_TOKEN", "tok")
 	t.Setenv("SORTIE_LOOP_MILESTONE", "v2")
+	t.Setenv("SORTIE_LOOP_ASSIGNEE", "")
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -38,6 +39,35 @@ func TestLoadEnvAndMilestone(t *testing.T) {
 	}
 	if cfg.Filters["review"] != "" {
 		t.Errorf("review filter should be empty, got %q", cfg.Filters["review"])
+	}
+}
+
+func TestLoadAssigneeDefaultAndOptOut(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("SORTIE_LOOP_REPO", "o/r")
+	t.Setenv("SORTIE_LOOP_TOKEN", "tok")
+	t.Setenv("SORTIE_LOOP_MILESTONE", "v2")
+	os.Unsetenv("SORTIE_LOOP_ASSIGNEE")
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Filters["plan"] != `label:agent:plan-needed milestone:"v2" assignee:@me` {
+		t.Errorf("plan filter: %q", cfg.Filters["plan"])
+	}
+	if cfg.Filters["review"] != "assignee:@me" {
+		t.Errorf("review filter: %q", cfg.Filters["review"])
+	}
+	t.Setenv("SORTIE_LOOP_ASSIGNEE", "")
+	cfg, err = Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Filters["plan"] != `label:agent:plan-needed milestone:"v2"` {
+		t.Errorf("opt-out plan filter: %q", cfg.Filters["plan"])
+	}
+	if cfg.Filters["review"] != "" {
+		t.Errorf("opt-out review filter: %q", cfg.Filters["review"])
 	}
 }
 
