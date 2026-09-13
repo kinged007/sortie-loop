@@ -76,20 +76,26 @@ Be thorough but focus on the most impactful issues. Every finding needs a
 file:line reference and a concrete suggested fix. Do not modify files,
 branches, or push anything. Do not open issues or PRs.
 
-## Step 4: Route the PR for fixes when needed
+## Step 4: Finish — route the PR and release the claim
 
-After posting the review, decide whether the PR needs follow-up work:
+Run these yourself before finishing; the loop only swaps the label it
+can derive (nothing for a PR still carrying `in-progress`).
 
-- Clean (recommendation is Approve with no Critical/High findings): do
-  nothing further; the loop applies `agent:reviewed` on completion.
-- Not clean (Critical or High findings, or recommendation is Approve
-  with Conditions or Request Changes): signal the fix loop so a dev
-  agent applies your recommendations. Run this before finishing (the
-  review-fix loop only watches PRs, so the label must land on the PR,
-  not an issue):
+- Clean (recommendation is Approve with no Critical/High findings):
+  remove both working labels so the PR leaves every active state:
 
   ```
-  gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --add-label "agent:build"
+  gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --remove-label "agent:needs-review,in-progress" --add-label "agent:reviewed"
+  ```
+
+- Not clean (Critical or High findings, or recommendation is Approve
+  with Conditions or Request Changes): signal the fix loop so a dev
+  agent applies your recommendations, then release the claim the same
+  way (the review-fix loop only watches PRs, so the label must land on
+  the PR, not an issue):
+
+  ```
+  gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --remove-label "agent:needs-review,in-progress" --add-label "agent:build,agent:reviewed"
   ```
 
 {{ if .issue.url }}
