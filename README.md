@@ -39,6 +39,7 @@ moving the checkout or forking needs no reconfiguration.
 ```
 .sortie/
   config.yaml      # repo:, token:, milestone: (all optional — see below)
+  workflows/       # installed by setup from the binary; edit freely, loop runs these
   .env.loop        # generated each run (resolved tracker, token, clone URL)
   workspaces/      # per-issue agent checkouts (dev/plan/review share one dir)
 ```
@@ -60,10 +61,13 @@ Flags: `--no-server` disables the per-loop HTTP debug ports (7678-7680).
 Three sortie loops: `plan` writes an implementation plan as
 an issue comment (a human removes `agent:plan-needed` to approve);
 `dev` builds `agent:quick` issues onto main and `agent:build` issues via PR;
-`review` reviews PRs labeled `agent:needs-review`. The workflow files live
-in `cmd/sortie-loop/workflows/` (embedded into the binary); the label
-scheme is documented in the old `.pi-workflows/ARCHITECTURE.md`, kept in
-project history.
+`review` reviews PRs labeled `agent:needs-review`. `setup` installs the
+workflow files into `.sortie/workflows/` (from `cmd/sortie-loop/workflows/`,
+embedded in the binary) and the loop runs those copies — edit them per repo.
+Re-run `setup` after upgrading sortie-loop to refresh them (local edits are
+overwritten); the loop itself only restores files deleted since setup.
+The label scheme is documented in the old `.pi-workflows/ARCHITECTURE.md`,
+kept in project history.
 
 ## Building
 

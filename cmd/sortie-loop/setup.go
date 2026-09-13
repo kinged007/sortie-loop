@@ -66,6 +66,8 @@ func runSetup(dir string) {
 		}
 		fmt.Println("created", cfgPath)
 	}
+	syncWorkflows(abs, true)
+	fmt.Println("workflows installed in", filepath.Join(abs, ".sortie", "workflows"))
 	repo := configRepo(abs)
 	ensureGitignore(abs)
 	for _, l := range labels {

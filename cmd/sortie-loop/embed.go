@@ -2,7 +2,6 @@ package main
 
 import (
 	"embed"
-	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -10,15 +9,14 @@ import (
 //go:embed workflows
 var embeddedWorkflows embed.FS
 
-// mustMaterialize extracts the embedded workflow files (WORKFLOW.*.md +
-// prompts/) to a cache dir on first use and returns the path of name.
-// ponytail: cache keyed by binary build; `sortie-loop update-workflows`
-// refresh would follow if workflows ever need hot-patching per install.
-func mustMaterialize(name string) string {
-	dir, err := workflowCacheDir()
-	if err != nil {
-		fatal(err)
-	}
+// syncWorkflows installs the embedded workflow files (WORKFLOW.*.md +
+// prompts/) into <root>/.sortie/workflows/ so they sit visible next to
+// the loop's config, env, and workspaces. With refresh=false only missing
+// files are written, leaving edits alone; setup passes refresh=true to
+// bring everything back in line with the binary.
+// ponytail: no version stamp; re-run `sortie-loop setup` after upgrading
+// to refresh, or delete .sortie/workflows for a clean reinstall.
+func syncWorkflows(root string, refresh bool) {
 	entries, err := embeddedWorkflows.ReadDir("workflows")
 	if err != nil {
 		fatal(err)
@@ -27,25 +25,26 @@ func mustMaterialize(name string) string {
 		if e.IsDir() {
 			continue
 		}
-		copyEmbedded("workflows/"+e.Name(), filepath.Join(dir, e.Name()))
+		writeWorkflow(filepath.Join(root, ".sortie", "workflows", e.Name()), "workflows/"+e.Name(), refresh)
 	}
 	prompts, err := embeddedWorkflows.ReadDir("workflows/prompts")
 	if err != nil {
 		fatal(err)
 	}
 	for _, p := range prompts {
-		copyEmbedded("workflows/prompts/"+p.Name(), filepath.Join(dir, "prompts", p.Name()))
+		writeWorkflow(filepath.Join(root, ".sortie", "workflows", "prompts", p.Name()), "workflows/prompts/"+p.Name(), refresh)
 	}
-	return filepath.Join(dir, name)
 }
 
-func copyEmbedded(src, dest string) {
+func writeWorkflow(dest, src string, refresh bool) {
 	data, err := embeddedWorkflows.ReadFile(src)
 	if err != nil {
 		fatal(err)
 	}
-	if cur, err := os.ReadFile(dest); err == nil && string(cur) == string(data) {
-		return
+	if cur, err := os.ReadFile(dest); err == nil {
+		if string(cur) == string(data) || !refresh {
+			return
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		fatal(err)
@@ -55,14 +54,10 @@ func copyEmbedded(src, dest string) {
 	}
 }
 
-func workflowCacheDir() (string, error) {
-	base := os.Getenv("XDG_CACHE_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve cache dir: %w", err)
-		}
-		base = filepath.Join(home, ".cache")
-	}
-	return filepath.Join(base, "sortie-loop", "workflows-"+sortieVersion), nil
+// workflowPath returns the repo-local workflow file, filling gaps from the
+// embedded copies so checkouts set up before workflows moved into .sortie
+// still run.
+func workflowPath(root, name string) string {
+	syncWorkflows(root, false)
+	return filepath.Join(root, ".sortie", "workflows", name)
 }
