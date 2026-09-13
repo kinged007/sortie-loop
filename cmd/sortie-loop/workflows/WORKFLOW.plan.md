@@ -3,7 +3,7 @@ tracker:
   kind: github
   api_key: $SORTIE_TRACKER_API_KEY
   project: $SORTIE_TRACKER_PROJECT
-  query_filter: "label:agent:plan-needed"
+  query_filter: "label:agent:plan-needed assignee:@me"
   # ponytail: `backlog` must stay first. Open issues carrying no state
   # label derive active_states[0] as their state, so without a leading
   # non-target entry the dispatch-time in-progress transition is a silent

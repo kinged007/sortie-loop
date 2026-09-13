@@ -3,6 +3,7 @@ tracker:
   kind: github-pr
   api_key: $SORTIE_TRACKER_API_KEY
   project: $SORTIE_TRACKER_PROJECT
+  query_filter: "assignee:@me"
   active_states: [agent:needs-review]
   in_progress_state: agent:needs-review
   handoff_state: agent:reviewed

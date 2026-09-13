@@ -18,6 +18,9 @@ type Config struct {
 	Repo      string `yaml:"repo"`
 	Token     string `yaml:"token"`
 	Milestone string `yaml:"milestone"`
+	// Assignee restricts every loop to items assigned to this user.
+	// Empty = no restriction. Unset = @me (the token owner).
+	Assignee *string `yaml:"assignee"`
 
 	Dir        string            // repo root (sortie dir is Dir/.sortie)
 	SortieBin  string            // resolved sortie binary path
@@ -40,16 +43,29 @@ func Load(dir string) (*Config, error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
+	// Default: only pick up items assigned to the token owner.
+	assignee := "@me"
 	if len(raw) > 0 {
 		var file struct {
-			Repo      string `yaml:"repo"`
-			Token     string `yaml:"token"`
-			Milestone string `yaml:"milestone"`
+			Repo      string  `yaml:"repo"`
+			Token     string  `yaml:"token"`
+			Milestone string  `yaml:"milestone"`
+			Assignee  *string `yaml:"assignee"`
 		}
 		if err := yaml.Unmarshal(raw, &file); err != nil {
 			return nil, fmt.Errorf("parse .sortie/config.yaml: %w", err)
 		}
 		c.Repo, c.Token, c.Milestone = file.Repo, file.Token, file.Milestone
+		if file.Assignee != nil {
+			assignee = *file.Assignee
+		}
+		if v, ok := os.LookupEnv("SORTIE_LOOP_ASSIGNEE"); ok {
+			assignee = v
+		}
+		c.Assignee = file.Assignee
+	}
+	if v, ok := os.LookupEnv("SORTIE_LOOP_ASSIGNEE"); ok {
+		assignee = v
 	}
 	if v := os.Getenv("SORTIE_LOOP_REPO"); v != "" {
 		c.Repo = v
@@ -85,9 +101,9 @@ func Load(dir string) (*Config, error) {
 	c.CloneURL = "https://github.com/" + c.Repo + ".git"
 	c.Workspaces = filepath.Join(dir, ".sortie", "workspaces")
 	c.Filters = map[string]string{
-		"plan":   withMilestone("label:agent:plan-needed", c.Milestone),
-		"dev":    withMilestone("label:agent:quick,agent:build -label:agent:plan-needed", c.Milestone),
-		"review": "",
+		"plan":   withScope(withMilestone("label:agent:plan-needed", c.Milestone), assignee),
+		"dev":    withScope(withMilestone("label:agent:quick,agent:build -label:agent:plan-needed", c.Milestone), assignee),
+		"review": withScope("", assignee),
 	}
 	return c, nil
 }
@@ -104,9 +120,19 @@ func (c *Config) Env() []string {
 	}
 }
 
+func withScope(base, assignee string) string {
+	if assignee == "" {
+		return base
+	}
+	if base == "" {
+		return "assignee:" + assignee
+	}
+	return base + " assignee:" + assignee
+}
+
 func withMilestone(base, milestone string) string {
 	if milestone == "" {
-		return ""
+		return base
 	}
 	if base == "" {
 		return `milestone:"` + milestone + `"`
