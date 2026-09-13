@@ -3,7 +3,7 @@ tracker:
   kind: github-pr
   api_key: $SORTIE_TRACKER_API_KEY
   project: $SORTIE_TRACKER_PROJECT
-  query_filter: "assignee:@me -label:needs-human"
+  query_filter: "label:agent:merge assignee:@me -label:needs-human"
   active_states: [agent:merge]
   in_progress_state: agent:merge
   handoff_state: agent:merged
