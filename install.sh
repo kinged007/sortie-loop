@@ -54,22 +54,36 @@ resolve_sortie() {
 }
 
 FOUND="$(resolve_sortie)"
-if [ -n "$FOUND" ]; then
+if [ -z "$FOUND" ]; then
+  # No local sortie: download the custom build (pi agent + github-pr
+  # tracker) from the fork release.
+  VERSION="$("$BIN_DIR/sortie-loop" --dump-version 2>/dev/null || echo unknown)"
+  TAG="v$(echo "$VERSION" | tr '+' '-').1"
+  URL="https://github.com/kinged007/sortie/releases/download/${TAG}/sortie-linux-amd64"
+  if [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ]; then
+    echo ":: downloading sortie $VERSION ..."
+    mkdir -p "$SHARE_DIR"
+    if curl -sSfL "$URL" -o "$SHARE_DIR/sortie-$VERSION"; then
+      chmod +x "$SHARE_DIR/sortie-$VERSION"
+      echo ":: installed $SHARE_DIR/sortie-$VERSION"
+    else
+      echo "warning: download failed; set SORTIE_BIN=/path/to/sortie at runtime." >&2
+    fi
+  else
+    cat >&2 <<'EOF'
+warning: no sortie binary found and no prebuilt binary for this platform
+(Linux x86_64 only). Build from source and pass --sortie-bin PATH, or set
+SORTIE_BIN=/path/to/sortie at runtime:
+
+  git clone https://github.com/kinged007/sortie.git
+  cd sortie && go build -o ~/.local/bin/sortie ./cmd/sortie
+EOF
+  fi
+else
   mkdir -p "$SHARE_DIR"
   VERSION="$("$BIN_DIR/sortie-loop" --dump-version 2>/dev/null || echo unknown)"
   ln -sf "$FOUND" "$SHARE_DIR/sortie-$VERSION"
   echo ":: linked sortie $FOUND"
-else
-  cat >&2 <<'EOF'
-warning: no sortie binary found. The workflows need the pi agent and
-github-pr tracker, which no sortie release ships yet (v1.24.0 lacks both).
-Install sortie from source and point the loop at it:
-
-  git clone https://github.com/sortie-ai/sortie.git
-  cd sortie && go build -o ~/.local/bin/sortie ./cmd/sortie
-
-or set SORTIE_BIN=/path/to/sortie at runtime.
-EOF
 fi
 
 case ":$PATH:" in

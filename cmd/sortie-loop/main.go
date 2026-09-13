@@ -116,7 +116,7 @@ func main() {
 		if l.filter != "" {
 			env = append(env, "SORTIE_TRACKER_QUERY_FILTER="+l.filter)
 		}
-		cmd := exec.Command(bin, "--env-file", envFile, "--port", ports[i], workflowPath(l.file))
+		cmd := exec.Command(bin, "--env-file", envFile, "--port", ports[i], workflowPath(abs, l.file))
 		cmd.Dir = abs
 		cmd.Env = env
 		cmd.Stdout = os.Stdout

@@ -9,12 +9,6 @@ import (
 	"github.com/kinged007/sortie-loop/internal/config"
 )
 
-// workflowPath returns the embedded workflow file for name,
-// materialized next to the binary on first use.
-func workflowPath(name string) string {
-	return mustMaterialize(name)
-}
-
 // resolveSortieBin finds the sortie binary: SORTIE_BIN env, beside the
 // loop binary, on PATH, else the install.sh symlink under PREFIX.
 func resolveSortieBin() (string, error) {
@@ -52,15 +46,15 @@ func writeEnvFile(dir string, cfg *config.Config) (string, error) {
 	return path, nil
 }
 
-// ensureSortieBin returns the install.sh-managed sortie binary path.
-// ponytail: no release ships pi/github-pr yet, so there is nothing to
-// download; recheck when the first supporting release lands.
+// ensureSortieBin returns the install.sh-downloaded sortie binary path.
+// ponytail: checksum/signature verification when the release process
+// matures beyond a single custom binary.
 func ensureSortieBin() (string, error) {
 	dest := filepath.Join(homeDir(), ".local", "share", "sortie-loop", "sortie-"+sortieVersion)
 	if _, err := os.Stat(dest); err == nil {
 		return dest, nil
 	}
-	return "", fmt.Errorf("sortie binary not found (looked for SORTIE_BIN, ./sortie, PATH, %s); install sortie "+sortieVersion+" and set SORTIE_BIN", dest)
+	return "", fmt.Errorf("sortie binary not found (looked for SORTIE_BIN, ./sortie, PATH, %s); download sortie "+sortieVersion+" from https://github.com/kinged007/sortie/releases and set SORTIE_BIN, or rerun install.sh", dest)
 }
 
 func homeDir() string {
