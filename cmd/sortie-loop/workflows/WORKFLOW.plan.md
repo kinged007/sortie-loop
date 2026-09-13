@@ -1,6 +1,6 @@
 ---
 tracker:
-  kind: github-pr
+  kind: github
   api_key: $SORTIE_TRACKER_API_KEY
   project: $SORTIE_TRACKER_PROJECT
   query_filter: "label:agent:plan-needed"
