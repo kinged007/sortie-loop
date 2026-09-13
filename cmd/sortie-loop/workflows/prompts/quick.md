@@ -79,9 +79,27 @@ Address the review feedback on pull request #{{ .label_fix.pr_number }} in
 
 ## Finish
 
-Post one brief comment on the issue with `gh issue comment
-{{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --body "<comment>"`:
-findings, what you implemented, issues encountered. Keep it to a few lines.
+Post one detailed comment on the issue with `gh issue comment
+{{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --body "<comment>"`.
+A reader must understand what was done without reading the diff.
+Structure `<comment>` as:
+
+```markdown
+## Summary
+[one paragraph: outcome and approach]
+
+## Changes
+- [file or area]: [what changed and why]
+
+## Verification
+- [checks run and their results]
+
+## Issues encountered
+[problems hit and how resolved, or "None"]
+```
+
+Every section is required; write "None" only when true. Do not
+compress this into a few lines.
 
 {{ if .issue.url }}
 
