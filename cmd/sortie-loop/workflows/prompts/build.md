@@ -44,16 +44,54 @@ workflow hooks.
    regressions, and convention compliance.
 4. Do not push directly to main. When done, open a pull request from your
    branch against main using `gh`:
-   `gh pr create --base main --head auto/{{ .issue.identifier }} --title "<summary>" --body "Fixes #{{ .issue.identifier }}. <what changed>"`.
-   Write `pr_number`, `owner`, `repo`, and `branch` to `.sortie/scm.json`
-   so the workflow runner can watch the PR.
+   `gh pr create --base main --head auto/{{ .issue.identifier }} --title "<summary>" --body "<body>"`.
+   The PR body must follow this structure — two-line bodies are not
+   acceptable:
+
+   ```markdown
+   Fixes #{{ .issue.identifier }}.
+
+   ## Summary
+   [one paragraph: what this PR does and why]
+
+   ## Solution
+   [approach taken, key design decisions]
+
+   ## Changes
+   - [file or area]: [what changed]
+
+   ## Verification
+   - [checks run and their results]
+   ```
+
+   Every section is required. Write `pr_number`, `owner`, `repo`, and
+   `branch` to `.sortie/scm.json` so the workflow runner can watch the PR.
 5. Do not apply `agent:needs-review` to the PR yourself; the human triggers
    the deep review when ready.
 6. If the task is already resolved, post an issue comment saying so and stop.
-7. When done, post one brief comment on the issue with `gh issue comment
-   {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --body "<comment>"`:
-   findings, what you implemented, issues encountered, and the PR link.
-   Keep it to a few lines.
+7. When done, post one detailed comment on the issue with `gh issue comment
+   {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --body "<comment>"`.
+   A reader must understand what was done without reading the diff.
+   Structure `<comment>` as:
+
+   ```markdown
+   ## Summary
+   [one paragraph: outcome and approach]
+
+   ## Changes
+   - [file or area]: [what changed and why]
+
+   ## Verification
+   - [checks run and their results]
+
+   ## Issues encountered
+   [problems hit and how resolved, or "None"]
+
+   PR: [link]
+   ```
+
+   Every section is required; write "None" only when true. Do not
+   compress this into a few lines.
 
 {{ if .label_review }}
 
