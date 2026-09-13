@@ -27,7 +27,7 @@ Requires: go >= 1.24, git. `sortie-loop setup` also needs `gh`.
 
 ```sh
 sortie-loop setup    # writes .sortie/config.yaml, updates .gitignore, creates the labels
-sortie-loop          # run plan + dev + review loops (Ctrl-C stops all)
+sortie-loop          # run plan + dev + review + review-fix + merge loops (Ctrl-C stops all)
 ```
 
 `setup` detects `owner/name` from the git `origin` remote
@@ -56,18 +56,24 @@ milestone: ""   # optional milestone title to restrict all loops to
 Env overrides: `SORTIE_LOOP_REPO`, `SORTIE_LOOP_TOKEN`,
 `SORTIE_LOOP_MILESTONE` (plus `GH_MILESTONE` as a legacy alias),
 `SORTIE_LOOP_ASSIGNEE` (overrides `assignee:`).
-Flags: `--no-server` disables the per-loop HTTP debug ports (7678-7680).
+Flags: `--no-server` disables the per-loop HTTP debug ports (7678-7682).
 
 ## Loops
 
-All three loops default to items assigned to the token owner
+All five loops default to items assigned to the token owner
 (`assignee:@me` appended to each query filter). Set `assignee: ""` in
 config (or `SORTIE_LOOP_ASSIGNEE=""`) for a shared backlog.
 
-Three sortie loops: `plan` writes an implementation plan as
+Five sortie loops: `plan` writes an implementation plan as
 an issue comment (a human removes `agent:plan-needed` to approve);
 `dev` builds `agent:quick` issues onto main and `agent:build` issues via PR;
-`review` reviews PRs labeled `agent:needs-review`. `setup` installs the
+`review` reviews PRs labeled `agent:needs-review` (when the review is not
+clean it labels the PR `agent:build`, routing it to review-fix);
+`review-fix` applies posted review feedback on PRs labeled `agent:build`
+and routes them back with `agent:needs-review` for re-review;
+`merge` merges PRs labeled `agent:merge` (reads the PR plus all comments,
+files follow-up issues for remaining findings, merges into the PR's base
+branch; on conflicts it labels `needs-human` and drops the PR). `setup` installs the
 workflow files into `.sortie/workflows/` (from `cmd/sortie-loop/workflows/`,
 embedded in the binary) and the loop runs those copies — edit them per repo.
 Re-run `setup` after upgrading sortie-loop to refresh them (local edits are

@@ -101,9 +101,11 @@ func Load(dir string) (*Config, error) {
 	c.CloneURL = "https://github.com/" + c.Repo + ".git"
 	c.Workspaces = filepath.Join(dir, ".sortie", "workspaces")
 	c.Filters = map[string]string{
-		"plan":   withScope(withMilestone("label:agent:plan-needed", c.Milestone), assignee),
-		"dev":    withScope(withMilestone("label:agent:quick,agent:build -label:agent:plan-needed", c.Milestone), assignee),
-		"review": withScope("", assignee),
+		"plan":   withScope(withMilestone("label:agent:plan-needed -label:needs-human", c.Milestone), assignee),
+		"dev":    withScope(withMilestone("label:agent:quick,agent:build -label:agent:plan-needed -label:needs-human", c.Milestone), assignee),
+		"review":   withScope("-label:needs-human", assignee),
+		"review-fix": withScope("-label:needs-human", assignee),
+		"merge":    withScope("-label:needs-human", assignee),
 	}
 	return c, nil
 }

@@ -3,7 +3,7 @@ tracker:
   kind: github
   api_key: $SORTIE_TRACKER_API_KEY
   project: $SORTIE_TRACKER_PROJECT
-  query_filter: "label:agent:plan-needed assignee:@me"
+  query_filter: "label:agent:plan-needed -label:needs-human assignee:@me"
   # ponytail: `backlog` must stay first. Open issues carrying no state
   # label derive active_states[0] as their state, so without a leading
   # non-target entry the dispatch-time in-progress transition is a silent
@@ -11,6 +11,7 @@ tracker:
   active_states: [backlog, in-progress]
   in_progress_state: in-progress
   handoff_state: review
+  # -label:needs-human keeps escalated issues out (search path honors it).
   # Plan writes no code, so work-evidence is always undeterminable;
   # `off` skips the capture and the per-run log line. Handoff proceeds.
   handoff_evidence: off

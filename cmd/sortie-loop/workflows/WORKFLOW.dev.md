@@ -5,7 +5,7 @@ tracker:
   project: $SORTIE_TRACKER_PROJECT
   # ponytail: comma is GitHub search OR. The explicit
   # `(label:a OR label:b)` form returns zero results from /search/issues.
-  query_filter: "label:agent:quick,agent:build -label:agent:plan-needed assignee:@me"
+  query_filter: "label:agent:quick,agent:build -label:agent:plan-needed -label:needs-human assignee:@me"
   # ponytail: `backlog` must stay first. Open issues carrying no state
   # label derive active_states[0] as their state, so without a leading
   # non-target entry the dispatch-time in-progress transition is a silent
@@ -13,6 +13,7 @@ tracker:
   active_states: [backlog, in-progress]
   in_progress_state: in-progress
   handoff_state: review
+  # -label:needs-human keeps escalated issues out (search path honors it).
   terminal_states: [done]
   comments:
     on_completion: false
