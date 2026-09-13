@@ -41,7 +41,7 @@ moving the checkout or forking needs no reconfiguration.
   config.yaml      # repo:, token:, milestone: (all optional — see below)
   workflows/       # installed by setup from the binary; edit freely, loop runs these
   .env.loop        # generated each run (resolved tracker, token, clone URL)
-  workspaces/      # per-issue agent checkouts (dev/plan/review share one dir)
+  workspaces/      # per-item agent checkouts (one subdir per loop)
 ```
 
 `.sortie/config.yaml`:

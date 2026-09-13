@@ -76,6 +76,22 @@ Be thorough but focus on the most impactful issues. Every finding needs a
 file:line reference and a concrete suggested fix. Do not modify files,
 branches, or push anything. Do not open issues or PRs.
 
+## Step 4: Route the PR for fixes when needed
+
+After posting the review, decide whether the PR needs follow-up work:
+
+- Clean (recommendation is Approve with no Critical/High findings): do
+  nothing further; the loop applies `agent:reviewed` on completion.
+- Not clean (Critical or High findings, or recommendation is Approve
+  with Conditions or Request Changes): signal the fix loop so a dev
+  agent applies your recommendations. Run this before finishing (the
+  review-fix loop only watches PRs, so the label must land on the PR,
+  not an issue):
+
+  ```
+  gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --add-label "agent:build"
+  ```
+
 {{ if .issue.url }}
 
 ## Reference

@@ -3,11 +3,16 @@ tracker:
   kind: github-pr
   api_key: $SORTIE_TRACKER_API_KEY
   project: $SORTIE_TRACKER_PROJECT
-  # -label:needs-human keeps escalated PRs out; the github-pr adapter
-  # matches the exclusion client-side (the /pulls path runs no search).
-  query_filter: "assignee:@me -label:needs-human"
-  active_states: [agent:needs-review]
-  in_progress_state: agent:needs-review
+  # Strictly: PRs assigned to the token owner carrying agent:needs-review.
+  # The label clause is enforced via active_states below (the github-pr
+  # adapter lists via /pulls, which runs no search syntax); it is repeated
+  # here so the requirement is visible. -label:needs-human keeps escalated
+  # PRs out, matched client-side by the adapter.
+  query_filter: "label:agent:needs-review assignee:@me -label:needs-human"
+  # Dispatch auto-moves a taken PR agent:needs-review -> in-progress, so a
+  # second agent never picks it up; completion swaps to agent:reviewed.
+  active_states: [agent:needs-review, in-progress]
+  in_progress_state: in-progress
   handoff_state: agent:reviewed
   handoff_evidence: off
   terminal_states: [agent:review-complete]

@@ -43,6 +43,9 @@ func TestLoadEnvAndMilestone(t *testing.T) {
 	if cfg.Filters["merge"] != "-label:needs-human" {
 		t.Errorf("merge filter should exclude needs-human, got %q", cfg.Filters["merge"])
 	}
+	if cfg.Filters["review-fix"] != "-label:needs-human" {
+		t.Errorf("review-fix filter should exclude needs-human, got %q", cfg.Filters["review-fix"])
+	}
 }
 
 func TestLoadAssigneeDefaultAndOptOut(t *testing.T) {
@@ -64,6 +67,9 @@ func TestLoadAssigneeDefaultAndOptOut(t *testing.T) {
 	if cfg.Filters["merge"] != "-label:needs-human assignee:@me" {
 		t.Errorf("merge filter: %q", cfg.Filters["merge"])
 	}
+	if cfg.Filters["review-fix"] != "-label:needs-human assignee:@me" {
+		t.Errorf("review-fix filter: %q", cfg.Filters["review-fix"])
+	}
 	t.Setenv("SORTIE_LOOP_ASSIGNEE", "")
 	cfg, err = Load(dir)
 	if err != nil {
@@ -77,6 +83,9 @@ func TestLoadAssigneeDefaultAndOptOut(t *testing.T) {
 	}
 	if cfg.Filters["merge"] != "-label:needs-human" {
 		t.Errorf("opt-out merge filter: %q", cfg.Filters["merge"])
+	}
+	if cfg.Filters["review-fix"] != "-label:needs-human" {
+		t.Errorf("opt-out review-fix filter: %q", cfg.Filters["review-fix"])
 	}
 }
 
