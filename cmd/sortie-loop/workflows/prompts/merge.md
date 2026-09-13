@@ -79,7 +79,13 @@ Structure `<comment>` as:
 Every section is required; write "None" only when true. Do not compress
 this into a few lines.
 
-- Merged: nothing further; the loop applies `agent:merged` on completion.
+- Merged: release the claim yourself — remove both working labels and
+  apply `agent:merged` (the loop only swaps the label it can derive,
+  nothing for a PR still carrying `in-progress`):
+
+  ```
+  gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --remove-label "agent:merge,in-progress" --add-label "agent:merged"
+  ```
 - Not merged (conflicts you cannot resolve, or blocking items): signal for
   human help before finishing — run both commands so the loop drops the PR
   and a person can find it:

@@ -38,16 +38,19 @@ then fix them on the PR branch:
    ```
 
    Every section is required; write "None" only when true.
-5. Route the PR back for re-review (the review loop only watches PRs, so
-   the label must land on the PR, not an issue):
+5. Route the PR back for re-review and release the claim (the loop only
+   swaps the label it can derive — nothing for a PR still carrying
+   `in-progress` — and the review loop only watches PRs, so the label
+   must land on the PR, not an issue):
 
    ```
-   gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --add-label "agent:needs-review"
+   gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --remove-label "agent:build,in-progress" --add-label "agent:needs-review"
    ```
 
 If you cannot complete the fixes (blocked, conflicting feedback), post
 that as the PR comment instead — what you fixed, what is blocking, what
-you need — then still add `agent:needs-review`.
+you need — then still remove both working labels and add
+`agent:needs-review`.
 
 {{ if .issue.url }}
 

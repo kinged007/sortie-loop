@@ -3,9 +3,17 @@ tracker:
   kind: github-pr
   api_key: $SORTIE_TRACKER_API_KEY
   project: $SORTIE_TRACKER_PROJECT
+  # Assignee + exclusion enforced client-side by the adapter; the label
+  # clause rides along for visibility (the github-pr adapter lists via
+  # /pulls, which runs no search syntax — active_states below is what
+  # actually matches the label).
   query_filter: "label:agent:merge assignee:@me -label:needs-human"
-  active_states: [agent:merge]
-  in_progress_state: agent:merge
+  # Dispatch claims a taken PR by swapping agent:merge -> in-progress
+  # (auto, non-fatal), so a second agent never picks it up. in-progress
+  # sorts first: DeriveLabelState is first-match-wins, so the worker's
+  # own refresh must see its claim.
+  active_states: [in-progress, agent:merge]
+  in_progress_state: in-progress
   handoff_state: agent:merged
   handoff_evidence: off
   terminal_states: [agent:review-complete]
