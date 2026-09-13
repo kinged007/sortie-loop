@@ -1,11 +1,13 @@
 #!/bin/sh
-# Install sortie-loop: build the binary, install sortie, write the shim.
+# Install sortie-loop: build the binary, link sortie.
+#
+# One-liner (clones into ~/tmp, builds, installs, cleans up):
+#   curl -sSL https://raw.githubusercontent.com/kinged007/sortie-loop/main/install.sh | sh
 #
 # Usage:
 #   ./install.sh                    install sortie-loop to ~/.local/bin
 #   ./install.sh --prefix DIR       install binaries under DIR/bin
 #   ./install.sh --sortie-bin PATH  use an existing sortie binary
-#   curl -sSL https://raw.githubusercontent.com/kinged007/sortie-loop/main/install.sh | sh
 #
 # Requirements: go >= 1.24, git, gh (only `sortie-loop setup` needs gh).
 set -eu
@@ -33,11 +35,13 @@ command -v go >/dev/null || { echo "error: go >= 1.24 not found" >&2; exit 1; }
 command -v git >/dev/null || { echo "error: git not found" >&2; exit 1; }
 
 echo ":: building sortie-loop ..."
-if [ "$SRC" = "." ] || [ ! -f "$SRC/go.mod" ]; then
-  # Piped via curl: clone to a temp dir.
-  SRC="$(mktemp -d)/sortie-loop"
+if [ ! -f "$SRC/go.mod" ]; then
+  # Piped via curl (or run from elsewhere): clone into ~/tmp, build, clean up.
+  SRC="${HOME}/tmp/sortie-loop-build"
+  rm -rf "$SRC"
+  mkdir -p "${HOME}/tmp"
   git clone --depth 1 "https://github.com/${REPO}.git" "$SRC"
-  trap 'rm -rf "$(dirname "$SRC")"' EXIT
+  trap 'rm -rf "$SRC"' EXIT
 fi
 mkdir -p "$BIN_DIR"
 (cd "$SRC" && go build -trimpath -o "$BIN_DIR/sortie-loop" ./cmd/sortie-loop)

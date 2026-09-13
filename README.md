@@ -26,7 +26,7 @@ Requires: go >= 1.24, git. `sortie-loop setup` also needs `gh`.
 ## Use (inside any repo)
 
 ```sh
-sortie-loop setup    # writes .sortie/config.yaml, creates the labels
+sortie-loop setup    # writes .sortie/config.yaml, updates .gitignore, creates the labels
 sortie-loop          # run plan + dev + review loops (Ctrl-C stops all)
 ```
 
