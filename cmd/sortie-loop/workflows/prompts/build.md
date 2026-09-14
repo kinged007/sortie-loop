@@ -42,9 +42,11 @@ workflow hooks.
 3. Implement the change and run the project's checks before finishing (see
    repo README). Review your own diff (`git diff`) for correctness,
    regressions, and convention compliance.
-4. Do not push directly to main. When done, open a pull request from your
-   branch against main using `gh`:
-   `gh pr create --base main --head auto/{{ .issue.identifier }} --title "<summary>" --body "<body>"`.
+4. Do not push directly to the PR's base branch (whatever `baseRefName`
+   reports — resolve it below, never assume). When done, open a pull
+   request from your branch against the base using `gh`:
+   `gh pr create --base <base> --head auto/{{ .issue.identifier }} --title "<summary>" --body "<body>"`.
+   Resolve `<base>` first with `gh api repos/$SORTIE_TRACKER_PROJECT --jq .default_branch`.
    The PR body must follow this structure — two-line bodies are not
    acceptable:
 
@@ -92,32 +94,6 @@ workflow hooks.
 
    Every section is required; write "None" only when true. Do not
    compress this into a few lines.
-
-{{ if .label_review }}
-
-## Review This Pull Request
-
-Produce a code review of pull request #{{ .label_review.pr_number }} in
-{{ .label_review.owner }}/{{ .label_review.repo }}, requested by {{ .label_review.actor }}.
-
-1. Fetch the diff with `gh pr diff {{ .label_review.pr_number }} --repo {{ .label_review.owner }}/{{ .label_review.repo }}`.
-2. Review for correctness, clarity, and regressions.
-3. You post the review yourself with `gh pr review {{ .label_review.pr_number }} --repo {{ .label_review.owner }}/{{ .label_review.repo }} --comment --body "<review>"`. Do not modify files or push.
-{{ end }}
-
-{{ if .label_fix }}
-
-## Apply Review Feedback
-
-Address the review feedback on pull request #{{ .label_fix.pr_number }} in
-{{ .label_fix.owner }}/{{ .label_fix.repo }}, requested by {{ .label_fix.actor }}.
-
-1. Check out the PR branch `{{ .label_fix.branch }}` and fetch the latest
-   review comments with `gh`.
-2. Apply the requested fixes, run the project's checks, and push to the
-   same branch. Do not merge the PR.
-3. You post a summary yourself with `gh pr comment {{ .label_fix.pr_number }} --repo {{ .label_fix.owner }}/{{ .label_fix.repo }} --body "<what you fixed>"`.
-{{ end }}
 
 {{ if .issue.url }}
 

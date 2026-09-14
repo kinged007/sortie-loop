@@ -1,6 +1,9 @@
 # sortie-loop
 
 One command to run autonomous coding-agent loops against any GitHub repo's issues.
+GitHub is the only supported tracker: workflows use the `github` and
+`github-pr` tracker kinds, setup syncs labels with the `gh` CLI, and the
+prompts shell out to `gh` throughout. No other tracker is configured to work.
 
 ## Install
 
@@ -27,7 +30,7 @@ Requires: go >= 1.24, git. `sortie-loop setup` also needs `gh`.
 
 ```sh
 sortie-loop setup    # writes .sortie/config.yaml, updates .gitignore, creates the labels
-sortie-loop          # run plan + dev + review + review-fix + merge loops (Ctrl-C stops all)
+sortie-loop          # run every WORKFLOW.*.md loop (Ctrl-C stops all)
 ```
 
 `setup` detects `owner/name` from the git `origin` remote
@@ -51,22 +54,36 @@ repo: ""        # empty = detect from git remote; or pin owner/name
 token: ""       # empty = GITHUB_TOKEN / GH_TOKEN env
 milestone: ""   # optional milestone title to restrict all loops to
 #assignee: ""   # unset = @me (token owner only); "" = shared backlog
+# per-loop query-filter overrides, keyed by WORKFLOW.*.md stem
+# (read on every run — no setup re-run needed):
+#filters:
+#  triage: "label:agent:triage -label:needs-human"
+# GitHub labels setup ensures exist (create-or-edit; others left alone).
+# A custom loop adds its labels here, then setup is re-run to create them.
+labels:
+- {name: "agent:quick", color: "fbca04", description: "Track: small change, merged to base, no PR"}
+# ... (full default list seeded by setup)
 ```
 
 Env overrides: `SORTIE_LOOP_REPO`, `SORTIE_LOOP_TOKEN`,
 `SORTIE_LOOP_MILESTONE` (plus `GH_MILESTONE` as a legacy alias),
 `SORTIE_LOOP_ASSIGNEE` (overrides `assignee:`).
-Flags: `--no-server` disables the per-loop HTTP debug ports (7678-7682).
+Flags: `--no-server` disables the per-loop HTTP debug ports (from 7678 up).
 
 ## Loops
 
-All five loops default to items assigned to the token owner
+All loops default to items assigned to the token owner
 (`assignee:@me` appended to each query filter). Set `assignee: ""` in
-config (or `SORTIE_LOOP_ASSIGNEE=""`) for a shared backlog.
+config (or `SORTIE_LOOP_ASSIGNEE=""`) for a shared backlog. The
+startup set is every `WORKFLOW.*.md` in `.sortie/workflows/` — drop in
+a new file (e.g. `WORKFLOW.triage.md`) and it starts as a loop named
+by its stem (`triage`), port `7678+index`. New loops get the default
+filter (`-label:needs-human` plus scope) until narrowed via the
+`filters:` map in `.sortie/config.yaml` (keyed by loop name).
 
 Five sortie loops: `plan` writes an implementation plan as
 an issue comment (a human removes `agent:plan-needed` to approve);
-`dev` builds `agent:quick` issues onto main and `agent:build` issues via PR;
+`dev` builds `agent:quick` issues onto the base branch and `agent:build` issues via PR;
 `review` reviews PRs labeled `agent:needs-review` (when the review is not
 clean it labels the PR `agent:build`, routing it to review-fix);
 `review-fix` applies posted review feedback on PRs labeled `agent:build`

@@ -38,7 +38,7 @@ or is it follow-up work? Do not let non-blocking items hold the merge.
 ## Step 3: Merge
 
 Merge the PR branch into its base branch (from Step 1 `baseRefName` —
-usually main, but use whatever the PR targets):
+use whatever the PR targets, never assume):
 
 ```
 git fetch origin <base> <head>

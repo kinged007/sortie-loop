@@ -41,7 +41,10 @@ research-only: do not modify files, commit, push, or open PRs.
 
    - Goal (one line)
    - Findings (what the code does today)
-   - Approach (steps, files to change, how to verify)
+   - Test strategy (TDD): which tests to write first and see failing
+     before any implementation, then the implementation steps that make
+     them pass; how to verify (commands)
+   - Approach (steps, files to change)
    - Risks / open questions
 
 Keep it concise. End the comment with: "Remove the `agent:plan-needed`

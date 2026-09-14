@@ -36,7 +36,7 @@ func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "help") {
 		fmt.Println("Usage: sortie-loop [--no-server] [repo-root]")
 		fmt.Println("         sortie-loop setup [repo-root] [--repo=owner/name]")
-		fmt.Println("  Run plan, dev, review, review-fix, and merge loops against the repo at repo-root (default: cwd).")
+		fmt.Println("  Run every WORKFLOW.*.md loop in .sortie/workflows/ against the repo at repo-root (default: cwd).")
 		fmt.Println("  Settings live in <root>/.sortie/config.yaml; repo id defaults to the git remote.")
 		fmt.Println("  Settings live in <root>/.sortie/config.yaml; repo id defaults to the git remote.")
 		os.Exit(0)
@@ -77,18 +77,21 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	loops := []struct{ name, file, filter string }{
-		{"plan", "WORKFLOW.plan.md", cfg.Filters["plan"]},
-		{"dev", "WORKFLOW.dev.md", cfg.Filters["dev"]},
-		{"review", "WORKFLOW.review.md", cfg.Filters["review"]},
-		{"review-fix", "WORKFLOW.review-fix.md", cfg.Filters["review-fix"]},
-		{"merge", "WORKFLOW.merge.md", cfg.Filters["merge"]},
+	loops := discoverWorkflows(abs)
+	if len(loops) == 0 {
+		fatal(fmt.Errorf("no WORKFLOW.*.md files in %s", filepath.Join(abs, ".sortie", "workflows")))
+	}
+	for _, l := range loops {
+		fmt.Printf("loop %-10s %s filter %q\n", l.name, l.file, cfg.FilterFor(l.name))
 	}
 	// ponytail: one shared HTTP port across loops would collide; give each
-	// loop its own (--no-server passes --port 0 to disable entirely).
-	ports := []string{"7678", "7679", "7680", "7681", "7682"}
-	if noServer {
-		ports = []string{"0", "0", "0", "0", "0"}
+	// loop its own base+index (--no-server passes --port 0 to disable entirely).
+	ports := make([]string, len(loops))
+	for i := range loops {
+		ports[i] = fmt.Sprintf("%d", 7678+i)
+		if noServer {
+			ports[i] = "0"
+		}
 	}
 	var procs []*exec.Cmd
 	defer func() {
@@ -114,9 +117,10 @@ func main() {
 		}
 	}()
 	for i, l := range loops {
+		filter := cfg.FilterFor(l.name)
 		env := append(os.Environ(), cfg.Env()...)
-		if l.filter != "" {
-			env = append(env, "SORTIE_TRACKER_QUERY_FILTER="+l.filter)
+		if filter != "" {
+			env = append(env, "SORTIE_TRACKER_QUERY_FILTER="+filter)
 		}
 		cmd := exec.Command(bin, "--env-file", envFile, "--port", ports[i], workflowPath(abs, l.file))
 		cmd.Dir = abs
