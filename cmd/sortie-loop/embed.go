@@ -4,6 +4,7 @@ import (
 	"embed"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 //go:embed workflows
@@ -60,4 +61,27 @@ func writeWorkflow(dest, src string, refresh bool) {
 func workflowPath(root, name string) string {
 	syncWorkflows(root, false)
 	return filepath.Join(root, ".sortie", "workflows", name)
+}
+
+// discoverWorkflows lists the installed WORKFLOW.*.md files in name order,
+// filling gaps from the embedded copies first. The startup set is
+// whatever files exist on disk, so adding WORKFLOW.triage.md (embedded
+// or hand-written) starts a triage loop with no code change — the loop
+// name is the filename stem ("triage").
+func discoverWorkflows(root string) []struct{ name, file string } {
+	syncWorkflows(root, false)
+	entries, err := os.ReadDir(filepath.Join(root, ".sortie", "workflows"))
+	if err != nil {
+		fatal(err)
+	}
+	var loops []struct{ name, file string }
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, "WORKFLOW.") || !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		stem := strings.TrimSuffix(strings.TrimPrefix(name, "WORKFLOW."), ".md")
+		loops = append(loops, struct{ name, file string }{stem, name})
+	}
+	return loops
 }

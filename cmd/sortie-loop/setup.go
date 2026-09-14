@@ -6,26 +6,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-)
 
-// labels created by `sortie-loop setup`: name, color, description.
-var labels = [][3]string{
-	{"agent:quick", "fbca04", "Track: small change, merged to main, no PR"},
-	{"agent:plan-needed", "d876e3", "Track: plan must be written and approved first"},
-	{"agent:build", "1d76db", "Track: full development, lands via PR"},
-	{"backlog", "e4e669", "State: queued, not started"},
-	{"in-progress", "1d76db", "State: work in progress"},
-	{"review", "5319e7", "State: ready for human review"},
-	{"done", "0e8a16", "State: completed"},
-	{"needs-human", "d73a4a", "Escalation: agent needs a person"},
-	{"agent:review", "5319e7", "Command: request a review of a Sortie-managed PR"},
-	{"agent:fix", "5319e7", "Command: apply review feedback on a Sortie-managed PR"},
-	{"agent:needs-review", "fbca04", "State: PR is waiting for agent review"},
-	{"agent:reviewed", "5319e7", "State: agent review posted"},
-	{"agent:review-complete", "0e8a16", "State: review feedback addressed"},
-	{"agent:merge", "1d76db", "Command: agent should merge this PR"},
-	{"agent:merged", "0e8a16", "State: agent merged the PR"},
-}
+	"github.com/kinged007/sortie-loop/internal/config"
+)
 
 // runSetup creates .sortie/config.yaml if missing, syncs labels via gh,
 // and ensures .gitignore covers the loop's local state.
@@ -63,7 +46,18 @@ func runSetup(dir string) {
 			"# Assignee scope for all loops. Default (unset) = @me, the token\n" +
 			"# owner; only items assigned to that user are picked up. Set to\n" +
 			"# \"\" to disable (shared backlog).\n" +
-			"#assignee: \"\"\n"
+			"#assignee: \"\"\n" +
+			"# Per-loop query-filter overrides, keyed by WORKFLOW.*.md stem.\n" +
+			"# New loops start on the default filter; narrow them here, e.g.:\n" +
+			"#filters:\n" +
+			"#  triage: \"label:agent:triage -label:needs-human\"\n"
+		labelsBody := ""
+		for _, l := range config.DefaultLabels {
+			labelsBody += fmt.Sprintf("- {name: %q, color: %q, description: %q}\n", l.Name, l.Color, l.Description)
+		}
+		body += "# GitHub labels setup ensures exist (create-or-edit; others left alone).\n" +
+			"# Add a custom loop's labels here, then re-run setup.\n" +
+			"labels:\n" + labelsBody
 		if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
 			fatal(err)
 		}
@@ -76,14 +70,21 @@ func runSetup(dir string) {
 	fmt.Println("workflows installed in", filepath.Join(abs, ".sortie", "workflows"))
 	repo := configRepo(abs)
 	ensureGitignore(abs)
-	for _, l := range labels {
-		create := exec.Command("gh", "label", "create", l[0], "--repo", repo,
-			"--color", l[1], "--description", l[2])
+	// Labels come from the config file so custom loops can add their own:
+	// list entries under `labels:`, re-run setup, and they are created.
+	// Sync is additive — labels absent from the list are left alone.
+	cfg, err := config.Load(abs)
+	if err != nil {
+		fatal(err)
+	}
+	for _, l := range cfg.Labels {
+		create := exec.Command("gh", "label", "create", l.Name, "--repo", repo,
+			"--color", l.Color, "--description", l.Description)
 		if _, err := create.CombinedOutput(); err != nil {
-			edit := exec.Command("gh", "label", "edit", l[0], "--repo", repo,
-				"--color", l[1], "--description", l[2])
+			edit := exec.Command("gh", "label", "edit", l.Name, "--repo", repo,
+				"--color", l.Color, "--description", l.Description)
 			if out, err := edit.CombinedOutput(); err != nil {
-				fatal(fmt.Errorf("label %s: %s: %w", l[0], string(out), err))
+				fatal(fmt.Errorf("label %s: %s: %w", l.Name, string(out), err))
 			}
 		}
 	}

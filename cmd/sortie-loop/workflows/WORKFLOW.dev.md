@@ -34,11 +34,12 @@ hooks:
   after_create: |
     git clone --depth 1 "$SORTIE_LOOP_CLONE_URL" .
   before_run: |
-    git fetch origin main
-    git checkout -B "auto/$SORTIE_ISSUE_IDENTIFIER" origin/main
+    base=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's@^origin/@@')
+    git fetch origin "$base"
+    git checkout -B "auto/$SORTIE_ISSUE_IDENTIFIER" "origin/$base"
   after_run: |
     git add -A
-    git diff --cached --quiet || git commit -m "$SORTIE_ISSUE_IDENTIFIER: automated changes"
+    git diff --cached --quiet || git commit -m "$SORTIE_ISSUE_IDENTIFIER: agent changes"
     git push -u origin "auto/$SORTIE_ISSUE_IDENTIFIER"
   before_remove: |
     git push origin --delete "auto/${SORTIE_ISSUE_IDENTIFIER}" 2>/dev/null || true
@@ -81,10 +82,6 @@ reactions:
     max_retries: 2
     escalation: label
     escalation_label: needs-human
-  label_commands:
-    provider: github
-    review_label: agent:review
-    fix_label: agent:fix
 ---
 
 {{/* Dev loop: issues labeled `agent:quick` or `agent:build`
@@ -92,8 +89,5 @@ reactions:
      excludes `agent:plan-needed`, so planning gates development.
      Prompts live in prompts/: dispatch routes quick to quick.md,
      build to build.md, and anything unrouted to build (PR = safe).
-     The body below never renders; it documents the routing.
-     The {{ if .label_review }} and {{ if .label_fix }} branches live in
-     the per-rule templates (label dispatches reuse the frozen dispatch
-     template, not this body). */}}
+     The body below never renders; it documents the routing. */}}
 Dev loop routing only — the prompt comes from the dispatch template.

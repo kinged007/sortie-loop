@@ -5,7 +5,32 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kinged007/sortie-loop/internal/config"
 )
+
+func TestSetupSeedsLabelsIntoFreshConfig(t *testing.T) {
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, ".sortie"), 0o755)
+	// Simulate the config body setup writes for a fresh repo, then check
+	// it parses and carries every default label.
+	var body string
+	for _, l := range config.DefaultLabels {
+		body += "- {name: \"" + l.Name + "\", color: \"" + l.Color + "\", description: \"x\"}\n"
+	}
+	os.WriteFile(filepath.Join(root, ".sortie", "config.yaml"),
+		[]byte("repo: o/r\ntoken: tok\nlabels:\n"+body), 0o644)
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Labels) != len(config.DefaultLabels) {
+		t.Fatalf("labels = %d, want %d", len(cfg.Labels), len(config.DefaultLabels))
+	}
+	if cfg.Labels[0].Name != config.DefaultLabels[0].Name {
+		t.Errorf("first label = %q", cfg.Labels[0].Name)
+	}
+}
 
 func TestSyncWorkflowsKeepsEditsFillsGaps(t *testing.T) {
 	root := t.TempDir()
@@ -30,5 +55,26 @@ func TestSyncWorkflowsKeepsEditsFillsGaps(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, ".sortie", "workflows", "prompts", "quick.md")); err != nil {
 		t.Error("loop run did not restore missing prompt file")
+	}
+}
+
+func TestDiscoverWorkflowsPicksUpNewFile(t *testing.T) {
+	root := t.TempDir()
+	syncWorkflows(root, true)
+	// A hand-added workflow (no rebuild, no code change) is discovered.
+	os.WriteFile(filepath.Join(root, ".sortie", "workflows", "WORKFLOW.triage.md"), []byte("---\n"), 0o644)
+	// Non-workflow files are ignored.
+	os.WriteFile(filepath.Join(root, ".sortie", "workflows", "notes.md"), []byte("x"), 0o644)
+	got := discoverWorkflows(root)
+	var names []string
+	for _, l := range got {
+		names = append(names, l.name)
+	}
+	want := []string{"dev", "merge", "plan", "review-fix", "review", "triage"}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Errorf("discoverWorkflows = %v, want %v", names, want)
+	}
+	if got[len(got)-1].file != "WORKFLOW.triage.md" {
+		t.Errorf("triage file = %q", got[len(got)-1].file)
 	}
 }

@@ -22,13 +22,45 @@ type Config struct {
 	// Empty = no restriction. Unset = @me (the token owner).
 	Assignee *string `yaml:"assignee"`
 
-	Dir        string            // repo root (sortie dir is Dir/.sortie)
-	SortieBin  string            // resolved sortie binary path
-	EnvFile    string            // path to generated env file passed via --env-file
-	CloneURL   string            // https clone URL derived from Repo
-	Tracker    string            // tracker project, always == Repo
-	Filters    map[string]string // per-loop query filters with milestone applied
-	Workspaces string            // .sortie/workspaces under Dir
+	Dir       string // repo root (sortie dir is Dir/.sortie)
+	SortieBin string // resolved sortie binary path
+	EnvFile   string // path to generated env file passed via --env-file
+	CloneURL  string // https clone URL derived from Repo
+	Tracker   string // tracker project, always == Repo
+	// Filters overrides the default per-loop query filters by loop name
+	// (the WORKFLOW.*.md stem). Unknown loops get defaultFilter; known
+	// loops fall back to their shipped default when unset.
+	Filters map[string]string `yaml:"filters"`
+	// Labels are the GitHub labels setup ensures exist (create-or-edit;
+	// labels absent here are left alone). Empty = DefaultLabels.
+	Labels     []Label `yaml:"labels"`
+	Workspaces string  // .sortie/workspaces under Dir
+}
+
+// Label is one GitHub label managed by `sortie-loop setup`.
+type Label struct {
+	Name        string `yaml:"name"`
+	Color       string `yaml:"color"`
+	Description string `yaml:"description"`
+}
+
+// DefaultLabels are the labels for the shipped loops, seeded into a new
+// config.yaml by setup. A custom loop adds its entries here, then setup
+// creates them on GitHub (tracker support is GitHub-only).
+var DefaultLabels = []Label{
+	{"agent:quick", "fbca04", "Track: small change, merged to base, no PR"},
+	{"agent:plan-needed", "d876e3", "Track: plan must be written and approved first"},
+	{"agent:build", "1d76db", "Track: full development, lands via PR"},
+	{"backlog", "e4e669", "State: queued, not started"},
+	{"in-progress", "1d76db", "State: work in progress"},
+	{"review", "5319e7", "State: ready for human review"},
+	{"done", "0e8a16", "State: completed"},
+	{"needs-human", "d73a4a", "Escalation: agent needs a person"},
+	{"agent:needs-review", "fbca04", "State: PR is waiting for agent review"},
+	{"agent:reviewed", "5319e7", "State: agent review posted"},
+	{"agent:review-complete", "0e8a16", "State: review feedback addressed"},
+	{"agent:merge", "1d76db", "Command: agent should merge this PR"},
+	{"agent:merged", "0e8a16", "State: agent merged the PR"},
 }
 
 // Load reads .sortie/config.yaml under dir (repo root), applies environment
@@ -43,29 +75,28 @@ func Load(dir string) (*Config, error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
-	// Default: only pick up items assigned to the token owner.
-	assignee := "@me"
 	if len(raw) > 0 {
 		var file struct {
-			Repo      string  `yaml:"repo"`
-			Token     string  `yaml:"token"`
-			Milestone string  `yaml:"milestone"`
-			Assignee  *string `yaml:"assignee"`
+			Repo      string            `yaml:"repo"`
+			Token     string            `yaml:"token"`
+			Milestone string            `yaml:"milestone"`
+			Assignee  *string           `yaml:"assignee"`
+			Filters   map[string]string `yaml:"filters"`
+			Labels    []Label           `yaml:"labels"`
 		}
 		if err := yaml.Unmarshal(raw, &file); err != nil {
 			return nil, fmt.Errorf("parse .sortie/config.yaml: %w", err)
 		}
 		c.Repo, c.Token, c.Milestone = file.Repo, file.Token, file.Milestone
-		if file.Assignee != nil {
-			assignee = *file.Assignee
-		}
-		if v, ok := os.LookupEnv("SORTIE_LOOP_ASSIGNEE"); ok {
-			assignee = v
-		}
 		c.Assignee = file.Assignee
+		c.Filters = file.Filters
+		c.Labels = file.Labels
 	}
-	if v, ok := os.LookupEnv("SORTIE_LOOP_ASSIGNEE"); ok {
-		assignee = v
+	if c.Filters == nil {
+		c.Filters = map[string]string{}
+	}
+	if c.Labels == nil {
+		c.Labels = DefaultLabels
 	}
 	if v := os.Getenv("SORTIE_LOOP_REPO"); v != "" {
 		c.Repo = v
@@ -100,14 +131,46 @@ func Load(dir string) (*Config, error) {
 	c.Tracker = c.Repo
 	c.CloneURL = "https://github.com/" + c.Repo + ".git"
 	c.Workspaces = filepath.Join(dir, ".sortie", "workspaces")
-	c.Filters = map[string]string{
-		"plan":       withScope(withMilestone("label:agent:plan-needed -label:needs-human", c.Milestone), assignee),
-		"dev":        withScope(withMilestone("label:agent:quick,agent:build -label:agent:plan-needed -label:needs-human", c.Milestone), assignee),
-		"review":     withScope("-label:needs-human", assignee),
-		"review-fix": withScope("-label:needs-human", assignee),
-		"merge":      withScope("-label:needs-human", assignee),
-	}
 	return c, nil
+}
+
+// defaultFilters are the label constraints for the shipped loops. A new
+// WORKFLOW.*.md loop with no filters: entry gets defaultFilter (same
+// scope, no label constraint), so it starts but matches nothing until
+// the workflow's active_states or a filters: override narrows it.
+var defaultFilters = map[string]string{
+	"plan":       "label:agent:plan-needed -label:needs-human",
+	"dev":        "label:agent:quick,agent:build -label:agent:plan-needed -label:needs-human",
+	"review":     "-label:needs-human",
+	"review-fix": "-label:needs-human",
+	"merge":      "-label:needs-human",
+}
+
+const defaultFilter = "-label:needs-human"
+
+// FilterFor returns the query filter for a loop: the filters: override
+// when set, else the shipped default for known loops, else defaultFilter.
+// Milestone and assignee scope apply to every filter including overrides.
+// Default assignee scope is @me (the token owner); empty = no restriction.
+func (c *Config) FilterFor(name string) string {
+	base := c.Filters[name]
+	if base == "" {
+		base = defaultFilters[name]
+		if base == "" {
+			base = defaultFilter
+		}
+	}
+	return withScope(withMilestone(base, c.Milestone), c.assignee())
+}
+
+func (c *Config) assignee() string {
+	if c.Assignee != nil {
+		return *c.Assignee
+	}
+	if v, ok := os.LookupEnv("SORTIE_LOOP_ASSIGNEE"); ok {
+		return v
+	}
+	return "@me"
 }
 
 // Env returns the SORTIE_* environment for one sortie subprocess.
