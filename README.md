@@ -103,3 +103,12 @@ kept in project history.
 ```sh
 go build ./... && go vet ./...
 ```
+
+## Roadmap
+
+- Enforce `milestone:` on the `github-pr` tracker path. Config already
+  appends `milestone:"..."` to every loop's query filter, but sortie's
+  github-pr adapter parses only `label:` / `assignee:` / `-label:`
+  clauses — the milestone clause is silently ignored and `domain.Issue`
+  carries no milestone field. Until the adapter parses it, milestone
+  scoping does not filter PR loops.
