@@ -34,7 +34,7 @@ func main() {
 		return
 	}
 	if len(os.Args) > 1 && (os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "help") {
-		fmt.Println("Usage: sortie-loop [--no-server] [repo-root]")
+		fmt.Println("Usage: sortie-loop [--no-server] [--no-dashboard] [--dashboard-port=N] [--unite] [repo-root]")
 		fmt.Println("         sortie-loop setup [repo-root] [--repo=owner/name]")
 		fmt.Println("  Run every WORKFLOW.*.md loop in .sortie/workflows/ against the repo at repo-root (default: cwd).")
 		fmt.Println("  Settings live in <root>/.sortie/config.yaml; repo id defaults to the git remote.")
@@ -43,6 +43,9 @@ func main() {
 	}
 	dir := "."
 	noServer := false
+	noDashboard := false
+	dashPort := 0
+	unite := false
 	for i, a := range os.Args[1:] {
 		if a == "--repo" {
 			_ = i
@@ -55,7 +58,17 @@ func main() {
 		switch a {
 		case "--no-server":
 			noServer = true
+		case "--no-dashboard":
+			noDashboard = true
+		case "--unite":
+			unite = true
 		default:
+			if strings.HasPrefix(a, "--dashboard-port=") {
+				if _, err := fmt.Sscanf(a, "--dashboard-port=%d", &dashPort); err != nil || dashPort < 0 {
+					fatal(fmt.Errorf("invalid --dashboard-port=%q", a))
+				}
+				continue
+			}
 			if !strings.HasPrefix(a, "-") {
 				dir = a
 			}
@@ -84,17 +97,26 @@ func main() {
 	for _, l := range loops {
 		fmt.Printf("loop %-10s %s filter %q\n", l.name, l.file, cfg.FilterFor(l.name))
 	}
-	// ponytail: one shared HTTP port across loops would collide; give each
-	// loop its own base+index (--no-server passes --port 0 to disable entirely).
-	ports := make([]string, len(loops))
-	for i := range loops {
-		ports[i] = fmt.Sprintf("%d", 7678+i)
-		if noServer {
-			ports[i] = "0"
+	// ponytail: one shared HTTP port across loops would collide; probe
+	// upward from 7678 for a free port per loop (--no-server passes
+	// --port 0 to disable loop servers entirely).
+	loopPorts := make([]int, len(loops))
+	if noServer {
+		for i := range loopPorts {
+			loopPorts[i] = 0
 		}
+	} else {
+		var dash int
+		var err error
+		loopPorts, dash, err = claimPorts(len(loops), dashPort, noDashboard)
+		if err != nil {
+			fatal(err)
+		}
+		dashPort = dash
 	}
 	var procs []*exec.Cmd
 	defer func() {
+		dropRegistry(abs)
 		for _, p := range procs {
 			if p.Process != nil {
 				_ = p.Process.Signal(syscall.SIGTERM)
@@ -117,12 +139,16 @@ func main() {
 		}
 	}()
 	for i, l := range loops {
+		// The env override replaces the workflow's query_filter, so
+		// defaultFilters must mirror each loop's label clauses (the
+		// github-pr adapter enforces label: client-side); a filters:
+		// entry narrows further, it does not add to the default.
 		filter := cfg.FilterFor(l.name)
 		env := append(os.Environ(), cfg.Env()...)
 		if filter != "" {
 			env = append(env, "SORTIE_TRACKER_QUERY_FILTER="+filter)
 		}
-		cmd := exec.Command(bin, "--env-file", envFile, "--port", ports[i], workflowPath(abs, l.file))
+		cmd := exec.Command(bin, "--env-file", envFile, "--port", fmt.Sprint(loopPorts[i]), workflowPath(abs, l.file))
 		cmd.Dir = abs
 		cmd.Env = env
 		cmd.Stdout = os.Stdout
@@ -131,6 +157,22 @@ func main() {
 			fatal(fmt.Errorf("start %s loop: %w", l.name, err))
 		}
 		procs = append(procs, cmd)
+	}
+	endpoints := make([]loopEndpoint, len(loops))
+	for i, l := range loops {
+		endpoints[i] = loopEndpoint{
+			Repo:     abs,
+			RepoName: repoName(abs),
+			Loop:     l.name,
+			Port:     loopPorts[i],
+			DBPath:   dbPathFor(abs, l.file),
+		}
+	}
+	if err := writeRegistry(abs, endpoints); err != nil {
+		fmt.Fprintln(os.Stderr, "sortie-loop: registry:", err)
+	}
+	if !noDashboard && dashPort > 0 {
+		serveDashboard(dashPort, unite, endpoints)
 	}
 	for _, p := range procs {
 		_ = p.Wait()

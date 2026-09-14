@@ -134,16 +134,20 @@ func Load(dir string) (*Config, error) {
 	return c, nil
 }
 
-// defaultFilters are the label constraints for the shipped loops. A new
+// defaultFilters are the label constraints for the shipped loops,
+// mirroring each workflow's query_filter so the SORTIE_TRACKER_QUERY_FILTER
+// env override (which replaces it) preserves the positive label clauses.
+// The github-pr loops need them: the /pulls list path runs no search
+// syntax, so the adapter enforces label: clauses client-side. A new
 // WORKFLOW.*.md loop with no filters: entry gets defaultFilter (same
 // scope, no label constraint), so it starts but matches nothing until
 // the workflow's active_states or a filters: override narrows it.
 var defaultFilters = map[string]string{
 	"plan":       "label:agent:plan-needed -label:needs-human",
 	"dev":        "label:agent:quick,agent:build -label:agent:plan-needed -label:needs-human",
-	"review":     "-label:needs-human",
-	"review-fix": "-label:needs-human",
-	"merge":      "-label:needs-human",
+	"review":     "label:agent:needs-review -label:needs-human",
+	"review-fix": "label:agent:build -label:needs-human",
+	"merge":      "label:agent:merge -label:needs-human",
 }
 
 const defaultFilter = "-label:needs-human"
