@@ -56,10 +56,23 @@ resolve_sortie() {
 FOUND="$(resolve_sortie)"
 if [ -z "$FOUND" ]; then
   # No local sortie: download the custom build (pi agent + github-pr
-  # tracker) from the fork release.
+  # tracker) from the latest fork release. --dump-version reports the
+  # sortie release the workflows were built against; it must match
+  # a release asset name, or the download fails and SORTIE_BIN is needed.
   VERSION="$("$BIN_DIR/sortie-loop" --dump-version 2>/dev/null || echo unknown)"
-  TAG="v$(echo "$VERSION" | tr '+' '-').1"
-  URL="https://github.com/kinged007/sortie/releases/download/${TAG}/sortie-linux-amd64"
+  if ! command -v gh >/dev/null; then
+    echo "warning: gh not found, cannot resolve latest sortie release; set SORTIE_BIN=/path/to/sortie at runtime." >&2
+    TAG=""
+  else
+    TAG="$(gh release list --repo kinged007/sortie --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null)"
+  fi
+  # ${TAG}/download/... 404s on github.com (that form only works via the
+  # /latest alias); per-tag assets live under /download/${TAG}/...
+  if [ -n "${TAG}" ]; then
+    URL="https://github.com/kinged007/sortie/releases/download/${TAG}/sortie-linux-amd64"
+  else
+    URL="https://github.com/kinged007/sortie/releases/latest/download/sortie-linux-amd64"
+  fi
   if [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ]; then
     echo ":: downloading sortie $VERSION ..."
     mkdir -p "$SHARE_DIR"
