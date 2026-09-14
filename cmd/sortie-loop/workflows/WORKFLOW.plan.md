@@ -3,7 +3,8 @@ tracker:
   kind: github
   api_key: $SORTIE_TRACKER_API_KEY
   project: $SORTIE_TRACKER_PROJECT
-  query_filter: "label:agent:plan-needed -label:needs-human assignee:@me"
+  query_filter: "label:agent:plan-needed -label:needs-human"
+  # Assignee scope is appended by sortie-loop config at launch, not here.
   # ponytail: `backlog` must stay first. Open issues carrying no state
   # label derive active_states[0] as their state, so without a leading
   # non-target entry the dispatch-time in-progress transition is a silent

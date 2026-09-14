@@ -5,7 +5,8 @@ tracker:
   project: $SORTIE_TRACKER_PROJECT
   # ponytail: comma is GitHub search OR. The explicit
   # `(label:a OR label:b)` form returns zero results from /search/issues.
-  query_filter: "label:agent:quick,agent:build -label:agent:plan-needed -label:needs-human assignee:@me"
+  query_filter: "label:agent:quick,agent:build -label:agent:plan-needed -label:needs-human"
+  # Assignee scope is appended by sortie-loop config at launch, not here.
   # ponytail: `backlog` must stay first. Open issues carrying no state
   # label derive active_states[0] as their state, so without a leading
   # non-target entry the dispatch-time in-progress transition is a silent
@@ -41,8 +42,9 @@ hooks:
     git add -A
     git diff --cached --quiet || git commit -m "$SORTIE_ISSUE_IDENTIFIER: agent changes"
     git push -u origin "auto/$SORTIE_ISSUE_IDENTIFIER"
-  before_remove: |
-    git push origin --delete "auto/${SORTIE_ISSUE_IDENTIFIER}" 2>/dev/null || true
+  # before_remove hook needs revision to avoid data loss
+  # before_remove: |
+  #   git push origin --delete "auto/${SORTIE_ISSUE_IDENTIFIER}" 2>/dev/null || true
   timeout_ms: 120000
 
 agent:

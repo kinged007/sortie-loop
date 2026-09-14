@@ -3,13 +3,14 @@ tracker:
   kind: github-pr
   api_key: $SORTIE_TRACKER_API_KEY
   project: $SORTIE_TRACKER_PROJECT
-  # Strictly: PRs assigned to the token owner carrying agent:needs-review.
-  # The assignee clause is enforced client-side by the adapter; the label
+  # Strictly: PRs assigned to the token owner carrying agent:needs-review
+  # (assignee scope is appended by sortie-loop config at launch, enforced
+  # client-side by the adapter); the label
   # clause rides along for visibility (the github-pr adapter lists via
   # /pulls, which runs no search syntax — active_states below is what
   # actually matches the label). -label:needs-human keeps escalated PRs
   # out, matched client-side by the adapter.
-  query_filter: "label:agent:needs-review assignee:@me -label:needs-human"
+  query_filter: "label:agent:needs-review -label:needs-human"
   # Dispatch claims a taken PR by swapping agent:needs-review -> in-progress
   # (auto, non-fatal), so a second agent never picks it up. Do not add
   # agent:needs-review here: DeriveLabelState is first-match-wins, so the
