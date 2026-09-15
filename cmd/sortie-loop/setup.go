@@ -43,10 +43,10 @@ func runSetup(dir string) {
 			"token: \"\"\n" +
 			"# Optional milestone title to restrict all loops to (empty = off).\n" +
 			"milestone: \"\"\n" +
-			"# Assignee scope for all loops. Default (unset) = @me, the token\n" +
-			"# owner; only items assigned to that user are picked up. Set to\n" +
-			"# \"\" to disable (shared backlog).\n" +
-			"#assignee: \"\"\n" +
+			"# Assignee scope for all loops (@me = the token owner; only\n" +
+			"# items assigned to that user are picked up). Set to \"\"\n" +
+			"# to disable (shared backlog).\n" +
+			"assignee: \"@me\"\n" +
 			"# Per-loop query-filter overrides, keyed by WORKFLOW.*.md stem.\n" +
 			"# New loops start on the default filter; narrow them here, e.g.:\n" +
 			"#filters:\n" +

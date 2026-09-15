@@ -49,7 +49,7 @@ moving the checkout or forking needs no reconfiguration.
 repo: ""        # empty = detect from git remote; or pin owner/name
 token: ""       # empty = GITHUB_TOKEN / GH_TOKEN env
 milestone: ""   # optional milestone title to restrict all loops to
-#assignee: ""   # unset = @me (token owner only); "" = shared backlog
+assignee: "@me" # token owner only; "" = shared backlog
 # per-loop query-filter overrides, keyed by WORKFLOW.*.md stem
 # (read on every run — no setup re-run needed):
 #filters:
