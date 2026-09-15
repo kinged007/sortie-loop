@@ -106,7 +106,7 @@ this into a few lines.
   ```
   mkdir -p .sortie && echo "needs-human-review" > .sortie/status
   gh pr comment {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --body "<comment>"
-  gh issue add-label {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT needs-human
+  gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --add-label "needs-human"
   ```
 
 {{ if .issue.url }}
