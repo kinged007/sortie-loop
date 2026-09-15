@@ -13,14 +13,10 @@ cd sortie-loop
 ./install.sh                    # -> ~/.local/bin/sortie-loop
 ```
 
-`install.sh` builds the Go binary and links a `sortie` binary if one is on
-`PATH` (`--prefix DIR` and `--sortie-bin PATH` overrides exist). The
-workflows need sortie's `pi` agent and `github-pr` tracker, which no sortie
-release ships yet (v1.24.0 lacks both) — until one does, build sortie from
-source and point the loop at it:
+`install.sh` builds the Go binary and fetches a matching `sortie` binary from the [kinged007/sortie](https://github.com/kinged007/sortie) fork releases (which ships the `pi` agent and `github-pr` tracker the workflows need), linking a local `sortie` if one is already on `PATH` (`--prefix DIR` and `--sortie-bin PATH` overrides exist). Only build from source manually if the download fails:
 
 ```sh
-git clone https://github.com/sortie-ai/sortie.git
+git clone https://github.com/kinged007/sortie.git
 cd sortie && go build -o ~/.local/bin/sortie ./cmd/sortie
 ```
 
