@@ -34,7 +34,31 @@ Note specific file:line references.
 
 Combine all findings, categorized by severity (Critical, High, Medium,
 Low), and close with a recommendation (Approve, Approve with Conditions,
-or Request Changes). Post the review with:
+or Request Changes).
+
+If the recommendation is Approve or Approve with Conditions and the diff
+touches frontend code or anything that renders in the frontend (UI
+components, styles, templates, routes, API responses consumed by the UI),
+capture visual evidence before posting: run the app locally from the
+workspace (see the repo README for the dev command) and screenshot the
+affected surfaces with whatever headless browser or screenshot tool is
+available. Push the images to the PR branch under `.sortie/evidence/`
+(evidence files only — do not touch code) and embed them under
+`## Visual Evidence` as raw links
+(`https://raw.githubusercontent.com/$SORTIE_TRACKER_PROJECT/$head/.sortie/evidence/<file>.png`):
+
+head=$(gh pr view {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --json headRefName --jq .headRefName)
+mkdir -p .sortie/evidence
+git add .sortie/evidence
+git commit -m "Add visual evidence for PR #{{ .issue.identifier }} review"
+git push origin "HEAD:$head"
+
+Best effort: if the app cannot run locally or the push fails (e.g. fork
+PR), note the reason under `## Visual Evidence` and post without
+screenshots. A missing screenshot never turns an approval into
+Request Changes.
+
+Post the review with:
 
 `gh pr review {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --comment --body "<review>"`
 
@@ -67,6 +91,10 @@ Structure `<review>` as:
 
 ### Testing & Security
 [Findings from Review 3]
+
+## Visual Evidence
+[Screenshots of the affected UI, or "N/A — no frontend impact",
+or "Not captured: <reason>"]
 
 ## Final Recommendation
 [Approve / Approve with Conditions / Request Changes with reasoning]
