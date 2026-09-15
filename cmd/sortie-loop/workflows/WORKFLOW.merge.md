@@ -41,6 +41,17 @@ hooks:
     # common ancestor, which breaks `git merge` / merge-base in Step 3.
     git fetch origin "+pull/$SORTIE_ISSUE_IDENTIFIER/head:pr-$SORTIE_ISSUE_IDENTIFIER"
     git checkout -q "pr-$SORTIE_ISSUE_IDENTIFIER"
+  # Workspaces created before the remote existed still have none
+  # (after_create only runs once); add it idempotently so Step 3's
+  # `git fetch origin <base>` works on reused workspaces too.
+  before_run: |
+    git rev-parse --git-dir >/dev/null 2>&1 || exit 0
+    git remote get-url origin >/dev/null 2>&1 || git remote add origin "$SORTIE_LOOP_CLONE_URL"
+    # Legacy workspaces are shallow from the old after_create. A shallow
+    # PR graft plus a shallow base root share no merge-base, so git merge
+    # fails even when the compare API would succeed. Fill in the missing
+    # history when present; harmless on non-shallow clones.
+    if [ -f .git/shallow ]; then git fetch --unshallow origin 2>/dev/null || true; fi
   timeout_ms: 60000
 
 agent:
