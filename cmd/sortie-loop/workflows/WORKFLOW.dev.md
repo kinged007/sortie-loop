@@ -41,6 +41,9 @@ hooks:
   after_run: |
     git add -A
     git diff --cached --quiet || git commit -m "$SORTIE_ISSUE_IDENTIFIER: agent changes"
+    # A retry reuses the auto/* branch, so the remote may already have
+    # commits from an earlier attempt; rebase onto it instead of failing.
+    git fetch origin "auto/$SORTIE_ISSUE_IDENTIFIER" 2>/dev/null && git rebase "origin/auto/$SORTIE_ISSUE_IDENTIFIER" || true
     git push -u origin "auto/$SORTIE_ISSUE_IDENTIFIER"
   # before_remove hook needs revision to avoid data loss
   # before_remove: |
