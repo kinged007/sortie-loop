@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,6 +81,9 @@ func probeFreePort(port int) bool {
 
 // claimPorts finds free ports for n loops plus the dashboard by probing
 // upward from the base ports. Dashboard takes dashPort unless disabled.
+// A --dashboard-port=N flag always claims N for this run (fatal if busy)
+// so the operator can force a fresh dashboard; otherwise a live unite
+// dashboard found by findUniteDashboard is reused (dash=-1).
 func claimPorts(n int, dashPort int, noDashboard bool) (loops []int, dash int, err error) {
 	loops = make([]int, 0, n)
 	for p := loopBasePort; len(loops) < n && p <= probeCeilPort; p++ {
@@ -89,21 +94,55 @@ func claimPorts(n int, dashPort int, noDashboard bool) (loops []int, dash int, e
 	if len(loops) < n {
 		return nil, 0, fmt.Errorf("only %d free ports below %d, need %d", len(loops), probeCeilPort, n)
 	}
-	if !noDashboard {
-		if dashPort == 0 {
-			dashPort = dashDefaultPort
-		}
-		for p := dashPort; p <= probeCeilPort; p++ {
-			if probeFreePort(p) {
-				dash = p
-				break
-			}
-		}
-		if dash == 0 {
-			return nil, 0, fmt.Errorf("no free dashboard port below %d", probeCeilPort)
+	if noDashboard {
+		return loops, 0, nil
+	}
+	// Negative dashPort joins a live dashboard found earlier: no port
+	// is claimed and none is started (main prints the reused URL).
+	if dashPort < 0 {
+		return loops, dashPort, nil
+	}
+	if dashPort == 0 {
+		dashPort = dashDefaultPort
+	}
+	if probeFreePort(dashPort) {
+		return loops, dashPort, nil
+	}
+	return nil, 0, fmt.Errorf("dashboard port %d is busy (another dashboard is running?)", dashPort)
+}
+
+// findUniteDashboard returns the port of a live unite dashboard: the
+// first busy port at or below the dashboard default whose page marks
+// itself unite. Loop API ports and non-unite dashboards are skipped.
+func findUniteDashboard() int {
+	for p := dashDefaultPort; p >= loopBasePort-8 && p > 0; p-- {
+		if found := findUniteDashboardOn(p); found > 0 {
+			return found
 		}
 	}
-	return loops, dash, nil
+	return 0
+}
+
+// findUniteDashboardOn reports port when its page marks itself unite;
+// split out so tests can target ephemeral ports.
+func findUniteDashboardOn(p int) int {
+	client := &http.Client{Timeout: 2 * time.Second}
+	if probeFreePort(p) {
+		return 0
+	}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/", p))
+	if err != nil {
+		return 0
+	}
+	body, rerr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	if rerr != nil || resp.StatusCode != http.StatusOK {
+		return 0
+	}
+	if strings.Contains(string(body), "\u2014 Unite") {
+		return p
+	}
+	return 0
 }
 
 // writeRegistry records this sortie-loop's endpoints so a --unite

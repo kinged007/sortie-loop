@@ -108,11 +108,21 @@ func main() {
 	} else {
 		var dash int
 		var err error
+		// An explicit --dashboard-port=N always starts a dashboard on N
+		// (fatal if busy). Otherwise a --unite run joins the live unite
+		// dashboard when one answers, instead of starting a second one.
+		if unite && dashPort == 0 && !noDashboard {
+			if live := findUniteDashboard(); live > 0 {
+				dashPort = -live
+			}
+		}
 		loopPorts, dash, err = claimPorts(len(loops), dashPort, noDashboard)
 		if err != nil {
 			fatal(err)
 		}
-		dashPort = dash
+		if dashPort >= 0 {
+			dashPort = dash
+		}
 	}
 	var procs []*exec.Cmd
 	defer func() {
@@ -171,8 +181,12 @@ func main() {
 	if err := writeRegistry(abs, endpoints); err != nil {
 		fmt.Fprintln(os.Stderr, "sortie-loop: registry:", err)
 	}
+	// dashPort is negative when this run joins a live unite dashboard:
+	// its loops register above, and the existing page picks them up.
 	if !noDashboard && dashPort > 0 {
 		serveDashboard(dashPort, unite, endpoints)
+	} else if dashPort < 0 {
+		fmt.Printf("dashboard http://127.0.0.1:%d (unite: all repos)\n", -dashPort)
 	}
 	for _, p := range procs {
 		_ = p.Wait()
