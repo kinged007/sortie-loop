@@ -8,12 +8,12 @@ tracker:
   # /pulls, which runs no search syntax — active_states below is what
   # actually matches the label). Assignee scope is appended by
   # sortie-loop config at launch, not here.
-  query_filter: "label:agent:build -label:needs-human"
-  # Dispatch claims a taken PR by swapping agent:build -> in-progress
+  query_filter: "label:agent:build,agent:pr-fix -label:needs-human"
+  # Dispatch claims a taken PR by swapping agent:build/agent:pr-fix -> in-progress
   # (auto, non-fatal), so a second agent never picks it up. in-progress
   # sorts first: DeriveLabelState is first-match-wins, so the worker's
   # own refresh must see its claim.
-  active_states: [in-progress, agent:build]
+  active_states: [in-progress, agent:build, agent:pr-fix]
   in_progress_state: in-progress
   handoff_state: agent:needs-review
   handoff_evidence: off
@@ -56,7 +56,7 @@ dispatch:
     template: ./prompts/review-fix.md
 ---
 
-{{/* Review-fix loop: watches github-pr for PRs labeled `agent:build`
+{{/* Review-fix loop: watches github-pr for PRs labeled `agent:build` or `agent:pr-fix`
      (applied by the review prompt's Step 4 when the review is not clean).
      The agent checks out the PR head, applies the posted review feedback,
      pushes to the same branch, and routes the PR back with

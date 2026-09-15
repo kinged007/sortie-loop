@@ -46,7 +46,7 @@ func TestLoadEnvAndMilestone(t *testing.T) {
 	if cfg.FilterFor("merge") != `label:agent:merge -label:needs-human milestone:"v2"` {
 		t.Errorf("merge filter should exclude needs-human, got %q", cfg.FilterFor("merge"))
 	}
-	if cfg.FilterFor("review-fix") != `label:agent:build -label:needs-human milestone:"v2"` {
+	if cfg.FilterFor("review-fix") != `label:agent:build,agent:pr-fix -label:needs-human milestone:"v2"` {
 		t.Errorf("review-fix filter should exclude needs-human, got %q", cfg.FilterFor("review-fix"))
 	}
 	// Unknown loops get the default filter (no label constraint).
@@ -77,7 +77,7 @@ func TestLoadAssigneeDefaultAndOptOut(t *testing.T) {
 	if cfg.FilterFor("merge") != `label:agent:merge -label:needs-human milestone:"v2" assignee:@me` {
 		t.Errorf("merge filter: %q", cfg.FilterFor("merge"))
 	}
-	if cfg.FilterFor("review-fix") != `label:agent:build -label:needs-human milestone:"v2" assignee:@me` {
+	if cfg.FilterFor("review-fix") != `label:agent:build,agent:pr-fix -label:needs-human milestone:"v2" assignee:@me` {
 		t.Errorf("review-fix filter: %q", cfg.FilterFor("review-fix"))
 	}
 	t.Setenv("SORTIE_LOOP_ASSIGNEE", "")
@@ -94,7 +94,7 @@ func TestLoadAssigneeDefaultAndOptOut(t *testing.T) {
 	if cfg.FilterFor("merge") != `label:agent:merge -label:needs-human milestone:"v2"` {
 		t.Errorf("opt-out merge filter: %q", cfg.FilterFor("merge"))
 	}
-	if cfg.FilterFor("review-fix") != `label:agent:build -label:needs-human milestone:"v2"` {
+	if cfg.FilterFor("review-fix") != `label:agent:build,agent:pr-fix -label:needs-human milestone:"v2"` {
 		t.Errorf("opt-out review-fix filter: %q", cfg.FilterFor("review-fix"))
 	}
 }

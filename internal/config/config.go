@@ -51,6 +51,7 @@ var DefaultLabels = []Label{
 	{"agent:quick", "fbca04", "Track: small change, merged to base, no PR"},
 	{"agent:plan-needed", "d876e3", "Track: plan must be written and approved first"},
 	{"agent:build", "1d76db", "Track: full development, lands via PR"},
+	{"agent:pr-fix", "1d76db", "Trigger: PR feedback needs a fix build (alias of agent:build)"},
 	{"backlog", "e4e669", "State: queued, not started"},
 	{"in-progress", "1d76db", "State: work in progress"},
 	{"review", "5319e7", "State: ready for human review"},
@@ -151,7 +152,7 @@ var defaultFilters = map[string]string{
 	"plan":       "label:agent:plan-needed -label:needs-human",
 	"dev":        "label:agent:quick,agent:build -label:agent:plan-needed -label:needs-human",
 	"review":     "label:agent:needs-review -label:needs-human",
-	"review-fix": "label:agent:build -label:needs-human",
+	"review-fix": "label:agent:build,agent:pr-fix -label:needs-human",
 	"merge":      "label:agent:merge -label:needs-human",
 }
 
