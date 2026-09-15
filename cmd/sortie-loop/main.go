@@ -97,7 +97,18 @@ func main() {
 	for _, l := range loops {
 		fmt.Printf("loop %-10s %s filter %q\n", l.name, l.file, cfg.FilterFor(l.name))
 	}
-	// ponytail: one shared HTTP port across loops would collide; probe
+	var lock *portLock
+	if !noServer {
+		// Serialize the port claim and child startup across sortie-loop
+		// processes: two runs started together else probe before either
+		// has bound, pick the same ports, and the later child loses the
+		// bind (sortie exits when its HTTP server cannot bind).
+		lock, err = lockStarts()
+		if err != nil {
+			fatal(fmt.Errorf("port lock: %w", err))
+		}
+	}
+	// ponytail: one shared HTTP port per loop would collide; probe
 	// upward from 7678 for a free port per loop (--no-server passes
 	// --port 0 to disable loop servers entirely).
 	loopPorts := make([]int, len(loops))
@@ -107,7 +118,6 @@ func main() {
 		}
 	} else {
 		var dash int
-		var err error
 		// An explicit --dashboard-port=N always starts a dashboard on N
 		// (fatal if busy). Otherwise a --unite run joins the live unite
 		// dashboard when one answers, instead of starting a second one.
@@ -158,15 +168,17 @@ func main() {
 		if filter != "" {
 			env = append(env, "SORTIE_TRACKER_QUERY_FILTER="+filter)
 		}
-		cmd := exec.Command(bin, "--env-file", envFile, "--port", fmt.Sprint(loopPorts[i]), workflowPath(abs, l.file))
-		cmd.Dir = abs
-		cmd.Env = env
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Start(); err != nil {
+		cmd, port, err := startLoopChild(bin, envFile, abs, l.file, env, loopPorts[i])
+		if err != nil {
 			fatal(fmt.Errorf("start %s loop: %w", l.name, err))
 		}
+		loopPorts[i] = port
 		procs = append(procs, cmd)
+	}
+	// Startup done: every child bound its port, so the next run's probe
+	// sees them; free the port-claim lock for the rest of the lifetime.
+	if lock != nil {
+		lock.release()
 	}
 	endpoints := make([]loopEndpoint, len(loops))
 	for i, l := range loops {
@@ -189,8 +201,15 @@ func main() {
 		fmt.Printf("dashboard http://127.0.0.1:%d (unite: all repos)\n", -dashPort)
 	}
 	for _, p := range procs {
-		_ = p.Wait()
+		go func(c *exec.Cmd) {
+			if err := c.Wait(); err != nil {
+				fmt.Fprintln(os.Stderr, "sortie-loop:", err)
+			}
+			_ = syscall.Kill(0, syscall.SIGTERM)
+			os.Exit(1)
+		}(p)
 	}
+	select {}
 }
 
 func fatal(err error) {

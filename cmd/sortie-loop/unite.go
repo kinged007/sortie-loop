@@ -2,11 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -286,4 +288,135 @@ func pidAlive(pid int) bool {
 	// error means the process exists (or we lack permission, in which
 	// case treating it as alive is the safe side for discovery).
 	return p.Signal(syscall.Signal(0)) == nil
+}
+
+// waitLoopBound blocks until the loop child answers its state API on
+// port, or until it dies, or timeout elapses. bind errors are the main
+// startup failure (address already in use) and sortie exits when its
+// HTTP server fails to bind, so a child that dies during startup lost
+// the bind race and the caller must retry on the next port. A foreign
+// server answering on port does not count: the child must bind it
+// itself (the process group leader check guards against a reparented
+// zombie answering for a dead child).
+func waitLoopBound(cmd *exec.Cmd, port int, timeout time.Duration) error {
+	if port == 0 {
+		return nil
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		if childExited(cmd) {
+			return fmt.Errorf("loop exited before answering (port %d)", port)
+		}
+		if probeLoopAPI(port) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return nil // slow start is short of fatal; the dashboard retries
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// probeLoopAPI reports whether p answers the loop state API.
+func probeLoopAPI(p int) bool {
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/api/v1/state", p))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	var payload struct {
+		Counts json.RawMessage `json:"counts"`
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&payload) == nil && len(payload.Counts) > 0
+}
+
+// childExited reports whether the child already terminated, reaping it
+// without blocking when it has. A later cmd.Wait only gets an error.
+func childExited(cmd *exec.Cmd) bool {
+	var ws syscall.WaitStatus
+	pid, err := syscall.Wait4(cmd.Process.Pid, &ws, syscall.WNOHANG, nil)
+	if pid == cmd.Process.Pid {
+		return true
+	}
+	return err != nil && !errors.Is(err, syscall.EINTR)
+}
+
+// startLoopChild starts one loop child on the first port at or above
+// start that the child actually bounds, retrying upward when it does
+// not. Two sortie-loop runs started close together probe the same free
+// ports; sortie ends the process when its HTTP server cannot bind, so
+// the loser moves to the next free port instead of leaving its repo
+// unwatched with no dashboard endpoint.
+func startLoopChild(bin, envFile, dir, file string, env []string, start int) (*exec.Cmd, int, error) {
+	if start == 0 {
+		cmd, port, err := startOn(bin, envFile, dir, file, env, 0)
+		return cmd, port, err
+	}
+	for p := start; p <= probeCeilPort; p++ {
+		if !probeFreePort(p) {
+			continue
+		}
+		cmd, port, err := startOn(bin, envFile, dir, file, env, p)
+		if err != nil {
+			return nil, 0, err
+		}
+		if waitLoopBound(cmd, port, 15*time.Second) == nil {
+			return cmd, port, nil
+		}
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	}
+	return nil, 0, fmt.Errorf("no free loop port below %d", probeCeilPort)
+}
+
+// startOn launches one loop child on port; port 0 disables its server.
+func startOn(bin, envFile, dir, file string, env []string, port int) (*exec.Cmd, int, error) {
+	cmd := exec.Command(bin, "--env-file", envFile, "--port", fmt.Sprint(port), workflowPath(dir, file))
+	cmd.Dir = dir
+	cmd.Env = env
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return nil, 0, err
+	}
+	return cmd, port, nil
+}
+
+// portLock serializes the port claim and the child startup of one
+// sortie-loop run against other runs on the machine.
+type portLock struct{ f *os.File }
+
+// lockStarts takes the machine-wide port claim lock, blocking until it
+// is free. Held from before claimPorts until every loop child has
+// bound its port, so a run started at the same moment probes ports the
+// earlier run has already claimed instead of stealing them.
+func lockStarts() (*portLock, error) {
+	path, err := registryPath()
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return &portLock{f: f}, nil
+}
+
+// release frees the lock; the kernel also drops it when the process
+// exits, so a crashed run never wedges later ones.
+func (l *portLock) release() {
+	if l == nil || l.f == nil {
+		return
+	}
+	_ = syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
+	_ = l.f.Close()
+	l.f = nil
 }
