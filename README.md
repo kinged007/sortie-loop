@@ -98,6 +98,26 @@ overwritten); the loop itself only restores files deleted since setup.
 The label scheme is documented in the old `.pi-workflows/ARCHITECTURE.md`,
 kept in project history.
 
+## Ad hoc: auto-merge on clean review
+
+To fully automate dev → review → merge on one repo (not a template
+default), edit that repo's `.sortie/workflows/prompts/review.md` Step 4
+clean branch to also apply `agent:merge`:
+
+```
+gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --remove-label "agent:needs-review,in-progress" --add-label "agent:reviewed,agent:merge"
+```
+
+The merge loop already watches `label:agent:merge`, so it picks the PR
+up on the next poll (~60s), triages comments, merges, and lands on
+`agent:merged`. Blocking findings and conflicts still stop the merge
+and escalate via `needs-human` — automation holds everywhere except
+where judgment is required. Caveat: the merge agent uses
+`git merge --ff-only`, so a branch drifted behind base stalls and
+escalates instead of rebasing. Note: re-running `setup` after a
+sortie-loop upgrade overwrites local workflow edits, so keep a copy of
+the one-liner.
+
 ## Building
 
 ```sh
