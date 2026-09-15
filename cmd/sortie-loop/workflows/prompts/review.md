@@ -85,7 +85,7 @@ can derive (nothing for a PR still carrying `in-progress`).
   remove both working labels so the PR leaves every active state:
 
   ```
-  gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --remove-label "agent:needs-review,in-progress" --add-label "agent:reviewed"
+  gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --remove-label "agent:needs-review,in-progress" --add-label "agent:reviewed,needs-human"
   ```
 
 - Not clean (Critical or High findings, or recommendation is Approve
