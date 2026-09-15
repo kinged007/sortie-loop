@@ -64,15 +64,20 @@ var DefaultLabels = []Label{
 }
 
 // Load reads .sortie/config.yaml under dir (repo root), applies environment
-// overrides, and derives git-based defaults. Missing config file is fine:
-// every field has a default or environment fallback.
+// overrides, and derives git-based defaults. The config file must exist:
+// a fresh checkout needs `sortie-loop setup` first, and running without
+// it would silently fall back to defaults (wrong labels, no milestone)
+// and dispatch on items the operator never scoped.
 func Load(dir string) (*Config, error) {
 	c := &Config{Dir: dir, Filters: map[string]string{}}
 	if dir == "" {
 		return nil, errors.New("config dir must not be empty")
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, ".sortie", "config.yaml"))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("no .sortie/config.yaml in %s (run `sortie-loop setup` first)", dir)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 	if len(raw) > 0 {
