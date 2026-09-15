@@ -70,7 +70,8 @@ workflow hooks.
    `branch` to `.sortie/scm.json` so the workflow runner can watch the PR.
 5. Do not apply `agent:needs-review` to the PR yourself; the human triggers
    the deep review when ready.
-6. If the task is already resolved, post an issue comment saying so and stop.
+6. If the task is already resolved, post an issue comment saying so and
+   stop.
 7. When done, post one detailed comment on the issue with `gh issue comment
    {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --body "<comment>"`.
    A reader must understand what was done without reading the diff.
@@ -94,6 +95,19 @@ workflow hooks.
 
    Every section is required; write "None" only when true. Do not
    compress this into a few lines.
+
+## Ending the run
+
+The runner re-sends this same prompt while the issue stays in an active
+state, and only a recognized `.sortie/status` value (or `max_turns`) ends
+the run early. As the last action of your final turn, write one:
+
+- PR opened or updated: `mkdir -p .sortie && echo "needs-human-review" > .sortie/status`
+- Nothing to do: `mkdir -p .sortie && echo "no-change-needed" > .sortie/status`
+- Cannot proceed: `mkdir -p .sortie && echo "blocked" > .sortie/status`
+
+Without it the runner keeps re-sending the task and you repeat the same
+verification and comment on every turn.
 
 {{ if .issue.url }}
 

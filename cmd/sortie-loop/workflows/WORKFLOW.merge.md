@@ -33,7 +33,13 @@ workspace:
 hooks:
   after_create: |
     git init -q . 2>/dev/null || true
-    git fetch --depth 1 origin "pull/$SORTIE_ISSUE_IDENTIFIER/head:pr-$SORTIE_ISSUE_IDENTIFIER" 2>/dev/null || git fetch --depth 1 "$SORTIE_LOOP_CLONE_URL" "pull/$SORTIE_ISSUE_IDENTIFIER/head:pr-$SORTIE_ISSUE_IDENTIFIER"
+    # Real remote, not ref-only fetches: Step 3 of the prompt must be able
+    # to `git fetch origin <base>`; without tracking refs it sees a stale
+    # or missing base and falls back to the GitHub compare API.
+    git remote add origin "$SORTIE_LOOP_CLONE_URL" 2>/dev/null || true
+    # No --depth: a shallow PR root plus a shallow base root share no
+    # common ancestor, which breaks `git merge` / merge-base in Step 3.
+    git fetch origin "+pull/$SORTIE_ISSUE_IDENTIFIER/head:pr-$SORTIE_ISSUE_IDENTIFIER"
     git checkout -q "pr-$SORTIE_ISSUE_IDENTIFIER"
   timeout_ms: 60000
 

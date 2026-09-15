@@ -33,7 +33,9 @@ workspace:
 hooks:
   after_create: |
     git init -q . 2>/dev/null || true
-    git fetch --depth 1 origin "pull/$SORTIE_ISSUE_IDENTIFIER/head:pr-$SORTIE_ISSUE_IDENTIFIER" 2>/dev/null || git fetch --depth 1 "$SORTIE_LOOP_CLONE_URL" "pull/$SORTIE_ISSUE_IDENTIFIER/head:pr-$SORTIE_ISSUE_IDENTIFIER"
+    # Step 3 of the prompt pushes the fix commit back; that needs a remote.
+    git remote add origin "$SORTIE_LOOP_CLONE_URL" 2>/dev/null || true
+    git fetch --depth 1 origin "+pull/$SORTIE_ISSUE_IDENTIFIER/head:pr-$SORTIE_ISSUE_IDENTIFIER"
     git checkout -q "pr-$SORTIE_ISSUE_IDENTIFIER"
   timeout_ms: 60000
 
