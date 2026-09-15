@@ -79,11 +79,15 @@ func probeFreePort(port int) bool {
 	return false
 }
 
-// claimPorts finds free ports for n loops plus the dashboard by probing
-// upward from the base ports. Dashboard takes dashPort unless disabled.
-// A --dashboard-port=N flag always claims N for this run (fatal if busy)
-// so the operator can force a fresh dashboard; otherwise a live unite
-// dashboard found by findUniteDashboard is reused (dash=-1).
+// claimPorts finds free ports for n loops plus the dashboard by
+// probing upward from the base ports (busy ports are skipped — each
+// loop server needs its own). Dashboard takes dashPort unless disabled.
+// A --dashboard-port=N flag always claims N for this run (fatal if
+// busy) so the operator can force a fresh dashboard; otherwise a live
+// unite dashboard found by findUniteDashboard is reused (dash=-1).
+// ponytail: two repos cannot share loop ports (one server per port),
+// so each repo's loops stack to the right; the unite dashboard reads
+// them all via the registry instead.
 func claimPorts(n int, dashPort int, noDashboard bool) (loops []int, dash int, err error) {
 	loops = make([]int, 0, n)
 	for p := loopBasePort; len(loops) < n && p <= probeCeilPort; p++ {

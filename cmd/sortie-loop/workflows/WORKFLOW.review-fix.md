@@ -37,6 +37,13 @@ hooks:
     git remote add origin "$SORTIE_LOOP_CLONE_URL" 2>/dev/null || true
     git fetch --depth 1 origin "+pull/$SORTIE_ISSUE_IDENTIFIER/head:pr-$SORTIE_ISSUE_IDENTIFIER"
     git checkout -q "pr-$SORTIE_ISSUE_IDENTIFIER"
+  # Workspaces created before the remote existed still have none
+  # (after_create only runs once); add it idempotently so the push in
+  # Step 3 works on reused workspaces too.
+  before_run: |
+    git rev-parse --git-dir >/dev/null 2>&1 || exit 0
+    git remote get-url origin >/dev/null 2>&1 || git remote add origin "$SORTIE_LOOP_CLONE_URL"
+    if [ -f .git/shallow ]; then git fetch --unshallow origin 2>/dev/null || true; fi
   timeout_ms: 60000
 
 agent:
