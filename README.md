@@ -118,6 +118,24 @@ escalates instead of rebasing. Note: re-running `setup` after a
 sortie-loop upgrade overwrites local workflow edits, so keep a copy of
 the one-liner.
 
+## Agent identity (name/avatar on GitHub)
+
+The commit author name/email is what GitHub displays. Point the loop's git
+identity at the agent — in the target repo or globally:
+
+```sh
+git config --global user.name "sortie-agent"
+git config --global user.email "agent@example.com"
+```
+
+`user.name` is display-only. GitHub links the commit (and its avatar) to the
+GitHub account whose **verified email** matches the author email. One account
+= one avatar, so every agent using your emails shows your personal avatar.
+Options for a distinct face: a separate bot account per agent (own email +
+avatar, verified there); or no GitHub account at all plus a per-email avatar
+on gravatar.com (GitHub falls back to the Gravatar for unclaimed emails);
+or publishing the agent as a GitHub App (`name[bot]`, its own avatar).
+
 ## Building
 
 ```sh
