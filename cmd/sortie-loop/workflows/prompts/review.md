@@ -75,6 +75,7 @@ Structure `<review>` as:
 Be thorough but focus on the most impactful issues. Every finding needs a
 file:line reference and a concrete suggested fix. Do not modify files,
 branches, or push anything. Do not open issues or PRs.
+!Important: If a Review has already been conducted, then your follow up review should act as an update, instead of writing another fully detailed review.
 
 ## Step 4: Finish — route the PR and release the claim
 

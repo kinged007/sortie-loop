@@ -55,7 +55,7 @@ agent:
   command: pi
   max_turns: 10
   max_concurrent_agents: 1
-  turn_timeout_ms: 1800000
+  turn_timeout_ms: 3600000
   read_timeout_ms: 120000
   stall_timeout_ms: 300000
   stop_grace_ms: 5000
