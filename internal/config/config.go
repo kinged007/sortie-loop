@@ -19,7 +19,7 @@ type Config struct {
 	Token     string `yaml:"token"`
 	Milestone string `yaml:"milestone"`
 	// Assignee restricts every loop to items assigned to this user.
-	// Empty = no restriction. Unset = @me (the token owner).
+	// Empty = no restriction. Setup writes "@me" (the token owner).
 	Assignee *string `yaml:"assignee"`
 
 	Dir       string // repo root (sortie dir is Dir/.sortie)
@@ -174,11 +174,11 @@ func (c *Config) FilterFor(name string) string {
 }
 
 func (c *Config) assignee() string {
-	if c.Assignee != nil {
-		return *c.Assignee
-	}
 	if v, ok := os.LookupEnv("SORTIE_LOOP_ASSIGNEE"); ok {
 		return v
+	}
+	if c.Assignee != nil {
+		return *c.Assignee
 	}
 	return "@me"
 }
