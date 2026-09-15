@@ -23,6 +23,9 @@ func TestNormalizeRepo(t *testing.T) {
 
 func TestLoadEnvAndMilestone(t *testing.T) {
 	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".sortie"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".sortie", "config.yaml"),
+		[]byte("repo: file/o\ntoken: filetok\n"), 0o644)
 	t.Setenv("SORTIE_LOOP_REPO", "o/r")
 	t.Setenv("SORTIE_LOOP_TOKEN", "tok")
 	t.Setenv("SORTIE_LOOP_MILESTONE", "v2")
@@ -54,6 +57,9 @@ func TestLoadEnvAndMilestone(t *testing.T) {
 
 func TestLoadAssigneeDefaultAndOptOut(t *testing.T) {
 	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".sortie"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".sortie", "config.yaml"),
+		[]byte("repo: file/o\ntoken: filetok\n"), 0o644)
 	t.Setenv("SORTIE_LOOP_REPO", "o/r")
 	t.Setenv("SORTIE_LOOP_TOKEN", "tok")
 	t.Setenv("SORTIE_LOOP_MILESTONE", "v2")
@@ -140,6 +146,14 @@ func TestLoadFilterOverrides(t *testing.T) {
 	}
 	if cfg.FilterFor("merge") != "label:agent:merge -label:needs-human" {
 		t.Errorf("untouched default: %q", cfg.FilterFor("merge"))
+	}
+}
+
+func TestLoadMissingConfigFails(t *testing.T) {
+	dir := t.TempDir() // no .sortie/config.yaml, git remote irrelevant
+	t.Setenv("SORTIE_LOOP_REPO", "o/r")
+	if _, err := Load(dir); err == nil {
+		t.Error("expected error with no config file")
 	}
 }
 
