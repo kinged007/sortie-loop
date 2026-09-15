@@ -48,11 +48,32 @@ repo's own conventions (README, AGENTS.md, existing code).
    then resolve the base with
    `base=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's@^origin/@@')`
    (whatever it is — staging, qa, main, or other; never hardcode it),
-   `git fetch origin "$base"`, `git checkout "$base"`,
-   `git merge --ff-only auto/{{ .issue.identifier }}` (plain `git merge`
-   on conflict, resolve carefully), `git push origin "$base"`. Leave
-   the branch in place — the workflow hooks clean it up. Do not open a PR.
-5. If the task is already complete, post an issue comment saying so and stop.
+   `git fetch origin "$base"`, `git checkout -B "$base" "origin/$base"`,
+   `git merge --ff-only auto/{{ .issue.identifier }}`. If the branch is
+   current that fast-forwards; if the base moved ahead since your branch
+   was cut, run `git merge --no-commit --no-ff auto/{{ .issue.identifier }}`
+   — clean means commit the merge and continue, conflicts mean resolve
+   them carefully or stop and leave the work for a human. Then
+   `git push origin "$base"`. Leave the branch in place — the workflow
+   hooks clean it up. Do not open a PR.
+5. The merge lands without review, so a human must verify: after pushing,
+   always run `gh issue edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --add-label "needs-human"`.
+   Without this the issue stays dispatchable and the loop picks it up again.
+6. If the task is already complete, post an issue comment saying so and
+   stop.
+
+## Ending the run
+
+The runner re-sends this same prompt while the issue stays in an active
+state, and only a recognized `.sortie/status` value (or `max_turns`) ends
+the run early. As the last action of your final turn, write one:
+
+- Work landed: `mkdir -p .sortie && echo "needs-human-review" > .sortie/status`
+- Nothing to do: `mkdir -p .sortie && echo "no-change-needed" > .sortie/status`
+- Cannot proceed: `mkdir -p .sortie && echo "blocked" > .sortie/status`
+
+Without it the runner keeps re-sending the task and you repeat the same
+verification and comment on every turn.
 
 ## Finish
 

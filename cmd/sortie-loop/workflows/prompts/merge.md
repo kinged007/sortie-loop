@@ -42,19 +42,32 @@ use whatever the PR targets, never assume):
 
 ```
 git fetch origin <base> <head>
-git checkout <base>
-git merge --ff-only <head>
+git checkout -B <base> "origin/<base>"
+if ! git merge --ff-only <head>; then
+  git merge --no-commit --no-ff <head>   # trial merge
+  # clean tree with staged changes => git commit; conflicts => git merge --abort
+fi
+```
+
+`--ff-only` keeps history linear when the branch is current. It fails
+when the base moved ahead after the branch was cut — that is routine in
+a busy repo, not an escalation trigger. On failure run the trial merge:
+if it applies cleanly (no conflict markers, no `Unmerged paths`), commit
+the merge and push the base:
+
+```
+git commit -m "Merge <head> into <base>"
 git push origin <base>
 ```
 
-`--ff-only` keeps history linear when the branch is up to date. When it
-fails, the branch needs the base merged back in or a rebase — that is a
-judgment call about rewriting someone else's history, so stop: go to
-Step 4 (conflict path) instead of forcing anything.
+Only real content conflicts escalate: `git merge --abort`, then go to
+Step 4 (conflict path). Do not rebase the PR branch and do not force-push
+it — resolve against the base with a merge commit and leave the branch
+as the author wrote it.
 
 Do not delete the PR branch; the workflow hooks clean it up. If the merge
-itself surfaces a real defect (conflict markers, broken checks), treat it
-as blocking: Step 4 (conflict path).
+itself surfaces a real defect (broken checks), treat it as blocking:
+Step 4 (conflict path).
 
 ## Step 4: Report
 
