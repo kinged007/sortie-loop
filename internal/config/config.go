@@ -58,7 +58,7 @@ var DefaultLabels = []Label{
 	{"done", "0e8a16", "State: completed"},
 	{"needs-human", "d73a4a", "Escalation: agent needs a person"},
 	{"agent:needs-review", "fbca04", "State: PR is waiting for agent review"},
-	{"agent:reviewed", "5319e7", "State: agent review posted"},
+	{"agent:reviewed", "0e8a16", "State: agent review posted"},
 	{"agent:review-complete", "0e8a16", "State: review feedback addressed"},
 	{"agent:merge", "1d76db", "Command: agent should merge this PR"},
 	{"agent:merged", "0e8a16", "State: agent merged the PR"},
