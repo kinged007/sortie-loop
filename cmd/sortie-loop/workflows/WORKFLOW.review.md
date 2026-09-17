@@ -53,6 +53,21 @@ agent:
 pi:
   model: ""
 
+# Alternative agent: Claude Code (opus for this loop). To switch, comment out
+# the active `agent:` and `pi:` blocks above and uncomment below.
+#agent:
+#  kind: claude-code
+#  command: claude
+#  max_turns: 3
+#  max_concurrent_agents: 1
+#  turn_timeout_ms: 3600000
+#  read_timeout_ms: 120000
+#  stall_timeout_ms: 300000
+#  stop_grace_ms: 5000
+#  max_retry_backoff_ms: 120000
+#claude-code:
+#  model: "opus"
+
 dispatch:
   default:
     template: ./prompts/review.md
