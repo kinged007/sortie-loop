@@ -64,6 +64,37 @@ agent:
 pi:
   model: ""
 
+# Alternative agent: Claude Code (sonnet for this loop). To switch, comment
+# out the active `agent:`/`pi:`/`dispatch:` blocks and uncomment the three
+# below. The rules must name claude-code too: a rule's `agent` selects its
+# settings block, the top-level `agent.kind` does not stand in for it.
+#agent:
+#  kind: claude-code
+#  command: claude
+#  max_turns: 10
+#  max_concurrent_agents: 1
+#  turn_timeout_ms: 3600000
+#  read_timeout_ms: 120000
+#  stall_timeout_ms: 300000
+#  stop_grace_ms: 5000
+#  max_retry_backoff_ms: 120000
+#claude-code:
+#  model: "sonnet"
+#dispatch:
+#  rules:
+#    - name: quick
+#      match:
+#        labels: ["agent:quick"]
+#      agent: claude-code
+#      template: ./prompts/quick.md
+#    - name: build
+#      match:
+#        labels: ["agent:build"]
+#      agent: claude-code
+#      template: ./prompts/build.md
+#  default:
+#    template: ./prompts/build.md
+
 # ponytail: one shared dev loop. Split into WORKFLOW.quick/build.md when
 # quick vs build need different models — dispatch cannot vary `pi.model`.
 dispatch:
