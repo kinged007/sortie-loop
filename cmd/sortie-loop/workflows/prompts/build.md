@@ -32,7 +32,7 @@ workflow hooks.
 
 ## Rules
 
-1. If the issue carries the `agent:plan-needed` label, post a brief issue
+1. If the issue carries the `agent:plan` label, post a brief issue
    comment saying planning is still pending and stop without making changes
    (the label was added after dispatch).
 2. Before starting, read all comments on the issue with
@@ -68,8 +68,9 @@ workflow hooks.
 
    Every section is required. Write `pr_number`, `owner`, `repo`, and
    `branch` to `.sortie/scm.json` so the workflow runner can watch the PR.
-5. Do not apply `agent:needs-review` to the PR yourself; the human triggers
-   the deep review when ready.
+5. Do not apply `agent:review` to the PR yourself; the human triggers the
+   deep review when ready. To chain it instead, apply `agent:review` to the
+   PR in the same edit that finishes the run (see Finishing the run).
 6. If the task is already resolved, post an issue comment saying so and
    stop.
 7. When done, post one detailed comment on the issue with `gh issue comment
@@ -108,6 +109,25 @@ the run early. As the last action of your final turn, write one:
 
 Without it the runner keeps re-sending the task and you repeat the same
 verification and comment on every turn.
+
+## Finishing the run
+
+You own the labels: remove your trigger and the claim, then mark the
+state. Chaining is off by default — a person applies trigger labels — so
+finish with `agent:done`. Add `needs-human` in the same command when a
+person has to look at this before anything else happens.
+
+```
+gh issue edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT \
+  --remove-label "agent:build,in-progress" --add-label "agent:done"
+```
+
+To send the PR you just opened straight into review, label the PR (not the
+issue) in the same step:
+
+```
+gh pr edit <pr> --repo $SORTIE_TRACKER_PROJECT --add-label "agent:review"
+```
 
 {{ if .issue.url }}
 

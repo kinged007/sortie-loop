@@ -33,10 +33,13 @@ to the `gh` CLI to read comments, open PRs, and move labels.
 There is no queue and no webhook. Every loop polls GitHub roughly every
 60 seconds with a search query built from three parts:
 
-1. **Label filter** — each loop watches its own labels. `dev` looks for
-   `label:agent:quick,agent:build`, `review` for
-   `label:agent:needs-review`, and so on (see Loops below). Adding a
-   label enqueues the item; the agent's label moves dequeue it.
+1. **Label filter** — each loop watches its own trigger label plus
+   `in-progress`. `dev` looks for `label:agent:build,in-progress`,
+   `review` for `label:agent:review,in-progress`, and so on (see Loops
+   below). Adding a trigger label enqueues the item; the agent removing
+   it plus adding `agent:done` takes it out of every loop. Sibling loops
+   exclude each other's triggers, so an item left mid-run by a crashed
+   process is re-picked by the loop that started it, not by a neighbour.
 2. **Assignee scope** — by default every query ends in `assignee:@me`,
    meaning only items assigned to the token owner are picked up. This
    keeps several people (or bots) from fighting over one backlog. Set
@@ -55,7 +58,56 @@ comment thread with `gh` (comments can override the description), makes
 the change, runs the project's checks, pushes, and posts a structured
 summary comment (Summary / Changes / Verification / Issues encountered).
 State moves forward through labels — e.g. `dev` opens a PR, a human
-adds `agent:needs-review`, `review` reviews it, `merge` merges it.
+adds `agent:review`, `review` reviews it, `merge` merges it.
+
+## Labels
+
+Seven labels, one role each. Only the four triggers are ever applied by a
+person (or by a chained agent, see below); the other three are set by the
+agents themselves.
+
+| Label | Colour | Role |
+|-------|--------|------|
+| `agent:plan` | yellow | Trigger: write an implementation plan for this issue |
+| `agent:build` | yellow | Trigger: implement this issue, or apply review feedback on this PR |
+| `agent:review` | yellow | Trigger: review this PR |
+| `agent:merge` | yellow | Trigger: merge this PR |
+| `in-progress` | purple | Claim: an agent is working on this right now |
+| `agent:done` | green | State: the agent finished |
+| `needs-human` | red | Escalation: a person has to look at this |
+
+The contract, in one line: **a trigger starts a loop, the loop adds
+`in-progress` and keeps the trigger while it works, and the run ends with
+`agent:done`** (plus `needs-human` when a person is needed). Because the
+trigger stays on the item for the whole run, a loop that is interrupted
+finds the item again on its next poll and finishes the job.
+
+`needs-human` is an exclusion in every loop's query, so a flagged item is
+parked until a person removes the label. `agent:done` is deliberately
+neither an active state nor a terminal one: it marks the item finished
+without closing it, and re-labelling the item with a trigger is how you
+run it again.
+
+### Chaining loops (opt-in)
+
+By default only a person applies trigger labels. Every `WORKFLOW.*.md` and
+every prompt documents the one-line change that lets an agent route its
+own output instead of stopping at `agent:done`. In a prompt, swap the
+label added by the finish step:
+
+```sh
+# stop (default)
+gh pr edit <n> --remove-label "agent:review,in-progress" --add-label "agent:done"
+# chain: the review found issues, so have a fix agent apply them
+gh pr edit <n> --remove-label "agent:review,in-progress" --add-label "agent:build"
+# chain: the review was clean, so merge it
+gh pr edit <n> --remove-label "agent:review,in-progress" --add-label "agent:merge"
+```
+
+The chained label must land on the item the next loop watches: PR loops
+(`review`, `review-fix`, `merge`) watch PRs, so label the PR, not the
+issue it came from. `.sortie/workflows/prompts/review.md` Step 4 and
+`review-fix.md` Step 5 carry both forms ready to uncomment.
 
 ## The loops
 
@@ -64,11 +116,15 @@ runs as its own loop process):
 
 | Loop | Watches | Does |
 |------|---------|------|
-| `plan` | issues with `agent:plan-needed` | Writes an implementation plan as an issue comment. A human removes `agent:plan-needed` to approve and unblock `dev`. |
-| `dev` | issues with `agent:quick` or `agent:build` | `agent:quick`: small fix, merged straight to the base branch, no PR. `agent:build`: full change, opened as a PR. Issues still carrying `agent:plan-needed` are skipped. |
-| `review` | PRs with `agent:needs-review` | Reviews the PR. Clean reviews get `agent:reviewed`; anything else gets `agent:build`, routing it to review-fix. |
-| `review-fix` | PRs with `agent:build` / `agent:pr-fix` | Applies posted review feedback, pushes, and puts `agent:needs-review` back on for re-review. |
-| `merge` | PRs with `agent:merge` | Reads the PR plus all comments, files follow-up issues for leftovers, and merges into the PR's base branch. Conflicts get `needs-human` and stop. Uses `git merge --ff-only`, so a branch that drifted behind base stalls and escalates instead of rebasing. |
+| `plan` | issues with `agent:plan` | Writes an implementation plan as an issue comment. The agent removes `agent:plan` and adds `agent:done`; a human reviews the plan and labels the issue `agent:build` to trigger development. |
+| `dev` | issues with `agent:build` | Implements the change and opens a PR (the parked `agent:quick` track merges straight to the base branch with no PR — see `prompts/quick.md`). |
+| `review` | PRs with `agent:review` | Reviews the PR in three passes. Ends on `agent:done` by default; chain it to `agent:build` (fix) or `agent:merge` (clean) instead. |
+| `review-fix` | PRs with `agent:build` | Applies posted review feedback and pushes to the PR branch. Chain it to `agent:review` for another pass. |
+| `merge` | PRs with `agent:merge` | Reads the PR plus all comments, files follow-up issues for leftovers, and merges into the PR's base branch. Conflicts end on `agent:done,needs-human` and the loop drops the PR. Uses `git merge --ff-only`, so a branch that drifted behind base stalls and escalates instead of rebasing. |
+
+The same `agent:build` trigger runs `dev` on an issue and `review-fix` on a
+PR: the tracker kind decides which loop can see the item at all, and each
+agent reads the item to know which job it is.
 
 The loop set is just every `WORKFLOW.*.md` in `.sortie/workflows/` —
 drop in a new file (e.g. `WORKFLOW.triage.md`) and it starts as a loop
@@ -188,8 +244,23 @@ assignee: "@me" # token owner only; "" = shared backlog
 # GitHub labels setup ensures exist (create-or-edit; others left alone).
 # A custom loop adds its labels here, then setup is re-run to create them.
 labels:
-- {name: "agent:quick", color: "fbca04", description: "Track: small change, merged to base, no PR"}
+- {name: "agent:plan", color: "fbca04", description: "Trigger: write an implementation plan for this issue"}
 # ... (full default list seeded by setup)
+```
+
+`setup` is additive: it creates the labels listed here and updates their
+colour and description, and leaves every other label in the repo alone —
+including labels from an older scheme. Nothing is deleted for you.
+Labels from the previous scheme (`agent:plan-needed`, `agent:quick`,
+`agent:pr-fix`, `agent:needs-review`, `agent:reviewed`,
+`agent:review-complete`, `agent:merged`, `backlog`, `review`, `done`) can
+be removed from a repo with:
+
+```sh
+for l in agent:plan-needed agent:quick agent:pr-fix agent:needs-review \
+         agent:reviewed agent:review-complete agent:merged backlog review done; do
+  gh label delete "$l" --repo owner/name --yes
+done
 ```
 
 Env overrides: `SORTIE_LOOP_REPO`, `SORTIE_LOOP_TOKEN`,
@@ -200,19 +271,19 @@ Env overrides: `SORTIE_LOOP_REPO`, `SORTIE_LOOP_TOKEN`,
 
 To fully automate dev → review → merge on one repo (not a template
 default), edit that repo's `.sortie/workflows/prompts/review.md` Step 4
-clean branch to also apply `agent:merge`:
+clean branch to chain the merge loop instead of stopping:
 
 ```
-gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --remove-label "agent:needs-review,in-progress" --add-label "agent:reviewed,agent:merge"
+gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT \
+  --remove-label "agent:review,in-progress" --add-label "agent:merge"
 ```
 
-The merge loop already watches `label:agent:merge`, so it picks the PR
-up on the next poll (~60s), triages comments, merges, and lands on
-`agent:merged`. Blocking findings and conflicts still stop the merge
-and escalate via `needs-human` — automation holds everywhere except
-where judgment is required. Note: re-running `setup` after a
-sortie-loop upgrade overwrites local workflow edits, so keep a copy of
-the one-liner.
+The merge loop watches `label:agent:merge`, so it picks the PR up on the
+next poll (~60s), triages comments, merges, and ends on `agent:done`.
+Blocking findings and conflicts still stop the merge and escalate via
+`needs-human` — automation holds everywhere except where judgment is
+required. Note: re-running `setup` after a sortie-loop upgrade overwrites
+local workflow edits, so keep a copy of the one-liner.
 
 ## Agent identity (name/avatar on GitHub)
 

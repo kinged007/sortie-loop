@@ -7,17 +7,21 @@ tracker:
   # clause rides along for visibility (the github-pr adapter lists via
   # /pulls, which runs no search syntax — active_states below is what
   # actually matches the label). Assignee scope is appended by
-  # sortie-loop config at launch, not here.
-  query_filter: "label:agent:build,agent:pr-fix -label:needs-human"
-  # Dispatch claims a taken PR by swapping agent:build/agent:pr-fix -> in-progress
-  # (auto, non-fatal), so a second agent never picks it up. in-progress
-  # sorts first: DeriveLabelState is first-match-wins, so the worker's
-  # own refresh must see its claim.
-  active_states: [in-progress, agent:build, agent:pr-fix]
+  # sortie-loop config at launch, not here. This loop shares the
+  # agent:build trigger with the dev loop: on an issue it means implement,
+  # on a PR it means apply the posted review finding.
+  query_filter: "label:agent:build,in-progress -label:agent:review -label:agent:merge -label:needs-human"
+  # `todo` first so a PR carrying only agent:build derives a state other
+  # than in-progress and the claim actually lands (see the dev workflow).
+  active_states: [todo, in-progress]
   in_progress_state: in-progress
-  handoff_state: agent:needs-review
+  # Backstop only: the agent removes agent:build and in-progress and adds
+  # agent:done, or agent:review when the fix wants another pass.
+  handoff_state: agent:done
   handoff_evidence: off
-  terminal_states: [agent:review-complete]
+  # Nothing is terminal: agent:done does not close the PR, and terminal
+  # states would close it on transition.
+  terminal_states: []
   comments:
     on_completion: false
 
@@ -80,11 +84,12 @@ dispatch:
     template: ./prompts/review-fix.md
 ---
 
-{{/* Review-fix loop: watches github-pr for PRs labeled `agent:build` or `agent:pr-fix`
-     (applied by the review prompt's Step 4 when the review is not clean).
-     The agent checks out the PR head, applies the posted review feedback,
-     pushes to the same branch, and routes the PR back with
-     `agent:needs-review` for re-review. The prompt lives in
-     prompts/review-fix.md (via dispatch default above). This keeps the
-     review loop read-only: it never edits code, it only routes. */}}
+{{/* Review-fix loop: watches github-pr for PRs labeled `agent:build`
+     (the same trigger the dev loop uses on issues). The agent checks out
+     the PR head, applies the posted review feedback, and pushes to the
+     same branch. By default it hands the result back to a person:
+     agent:build and in-progress off, agent:done on. Uncomment the
+     chaining line in prompts/review-fix.md Step 5 to have it ask for
+     another review pass instead. This keeps the review loop read-only:
+     it never edits code, it only routes. */}}
 Review-fix loop routing only — the prompt comes from the dispatch template.

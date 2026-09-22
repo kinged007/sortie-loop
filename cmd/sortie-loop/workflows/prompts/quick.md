@@ -1,4 +1,8 @@
-{{/* Quick track: surgical change merged straight to the base branch, no PR. */}}
+{{/* Quick track (parked): surgical change merged straight to the base
+   branch, no PR. Not reachable out of the box — the dev workflow routes
+   every issue to build.md and no shipped loop watches `agent:quick`. To
+   switch it on, uncomment the quick dispatch rule in WORKFLOW.dev.md and
+   add agent:quick to DefaultLabels in internal/config/config.go. */}}
 You are a full-stack developer making a small, surgical change in the
 repository checked out in your workspace. Your branch
 `auto/{{ .issue.identifier }}` is already checked out. Before starting,
@@ -34,7 +38,7 @@ repo's own conventions (README, AGENTS.md, existing code).
 
 ## Rules
 
-1. If the issue carries the `agent:plan-needed` label, post a brief issue
+1. If the issue carries the `agent:plan` label, post a brief issue
    comment saying planning is still pending and stop without making changes
    (the label was added after dispatch).
 2. Before starting, read all comments on the issue with
@@ -56,9 +60,11 @@ repo's own conventions (README, AGENTS.md, existing code).
    them carefully or stop and leave the work for a human. Then
    `git push origin "$base"`. Leave the branch in place — the workflow
    hooks clean it up. Do not open a PR.
-5. The merge lands without review, so a human must verify: after pushing,
-   always run `gh issue edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --add-label "needs-human"`.
-   Without this the issue stays dispatchable and the loop picks it up again.
+5. The merge lands without review, so a human must verify: finish the
+   labels with `needs-human` alongside `agent:done`:
+   `gh issue edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --remove-label "agent:quick,in-progress" --add-label "agent:done,needs-human"`.
+   Without removing `agent:quick` the issue stays dispatchable and the
+   loop picks it up again.
 6. If the task is already complete, post an issue comment saying so and
    stop.
 

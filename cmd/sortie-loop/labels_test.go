@@ -1,0 +1,272 @@
+package main
+
+import (
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"testing"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/kinged007/sortie-loop/internal/config"
+)
+
+// allowedLabels is every label the shipped workflows and prompts may name.
+// A custom loop in some target repo may use others; these files ship, so
+// their vocabulary is fixed.
+var allowedLabels = map[string]bool{
+	"agent:plan": true, "agent:build": true, "agent:review": true,
+	"agent:merge": true, "in-progress": true, "agent:done": true,
+	"needs-human": true,
+	// Parked quick track only: nothing seeds or watches agent:quick until the
+	// track is switched back on, but its prompt still has to stay name-clean.
+	"agent:quick": true,
+}
+
+// virtualStates are derivation fallbacks, never labels: no item carries them.
+var virtualStates = map[string]bool{"todo": true}
+
+// labelArg matches the value of a --add-label / --remove-label argument in a
+// prompt, including the multi-line form (`\` before the next line).
+var labelArg = regexp.MustCompile(`--(?:add|remove)-label\s+"([^"]*)"`)
+
+// queryLabel matches label:NAME and -label:NAME clauses in a query filter.
+var queryLabel = regexp.MustCompile(`-?label:([A-Za-z0-9:_-]+)`)
+
+// frontMatter returns the leading "---" block of a workflow file.
+func frontMatter(t *testing.T, name string) string {
+	t.Helper()
+	raw, err := embeddedWorkflows.ReadFile("workflows/" + name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(raw), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		t.Fatalf("%s: no front matter", name)
+	}
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			return strings.Join(lines[1:i], "\n")
+		}
+	}
+	t.Fatalf("%s: unterminated front matter", name)
+	return ""
+}
+
+type trackerFront struct {
+	Tracker struct {
+		Kind            string   `yaml:"kind"`
+		QueryFilter     string   `yaml:"query_filter"`
+		ActiveStates    []string `yaml:"active_states"`
+		InProgressState string   `yaml:"in_progress_state"`
+		HandoffState    string   `yaml:"handoff_state"`
+		TerminalStates  []string `yaml:"terminal_states"`
+	} `yaml:"tracker"`
+}
+
+// TestWorkflowLabels pins the state contract every shipped loop carries: a
+// claim label that is also an active state, a fallback that never is, and a
+// handoff to agent:done that neither closes the item nor re-dispatches it.
+func TestWorkflowLabels(t *testing.T) {
+	entries, err := fs.ReadDir(embeddedWorkflows, "workflows")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), "WORKFLOW.") {
+			continue
+		}
+		seen++
+		name := e.Name()
+		var fm trackerFront
+		if err := yaml.Unmarshal([]byte(frontMatter(t, name)), &fm); err != nil {
+			t.Fatalf("%s: parse front matter: %v", name, err)
+		}
+		tr := fm.Tracker
+
+		if tr.InProgressState != "in-progress" {
+			t.Errorf("%s: in_progress_state = %q, want in-progress", name, tr.InProgressState)
+		}
+		if len(tr.ActiveStates) == 0 || tr.ActiveStates[0] != "todo" {
+			t.Errorf("%s: active_states = %v, want todo first as the derivation fallback", name, tr.ActiveStates)
+		}
+		if !contains(tr.ActiveStates, "in-progress") {
+			t.Errorf("%s: active_states %v must contain in-progress", name, tr.ActiveStates)
+		}
+		if tr.HandoffState != "agent:done" {
+			t.Errorf("%s: handoff_state = %q, want agent:done", name, tr.HandoffState)
+		}
+		if contains(tr.ActiveStates, tr.HandoffState) {
+			t.Errorf("%s: handoff_state %q must not be an active state", name, tr.HandoffState)
+		}
+		if contains(tr.TerminalStates, "agent:done") {
+			t.Errorf("%s: agent:done must not be terminal — terminal states close the item", name)
+		}
+		if !strings.Contains(tr.QueryFilter, "in-progress") {
+			t.Errorf("%s: query_filter %q must match in-progress so a crashed run is re-picked", name, tr.QueryFilter)
+		}
+		if !strings.Contains(tr.QueryFilter, "-label:needs-human") {
+			t.Errorf("%s: query_filter %q must exclude needs-human", name, tr.QueryFilter)
+		}
+		for _, l := range queryLabel.FindAllStringSubmatch(tr.QueryFilter, -1) {
+			if !allowedLabels[l[1]] {
+				t.Errorf("%s: query_filter names unknown label %q", name, l[1])
+			}
+		}
+		for _, l := range tr.ActiveStates {
+			if !virtualStates[l] && !allowedLabels[l] {
+				t.Errorf("%s: active_states names unknown state %q", name, l)
+			}
+		}
+		loop := strings.TrimSuffix(strings.TrimPrefix(name, "WORKFLOW."), ".md")
+		if def := config.DefaultLabelFilter(loop); def != tr.QueryFilter {
+			t.Errorf("%s: query_filter %q != config default %q (the loop overwrites one with the other)", name, tr.QueryFilter, def)
+		}
+	}
+	if seen != 5 {
+		t.Errorf("checked %d workflows, want 5", seen)
+	}
+}
+
+// TestPromptLabels checks the finish step of every prompt: known label names,
+// the loop's own trigger released, and agent:done reached.
+func TestPromptLabels(t *testing.T) {
+	entries, err := fs.ReadDir(embeddedWorkflows, "workflows/prompts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		raw, err := embeddedWorkflows.ReadFile("workflows/prompts/" + e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := string(raw)
+		releasedTrigger := false
+		addedDone := false
+		for _, m := range labelArg.FindAllStringSubmatch(body, -1) {
+			removed := strings.HasPrefix(m[0], "--remove-label")
+			for _, l := range strings.Split(m[1], ",") {
+				l = strings.TrimSpace(l)
+				if l == "" {
+					continue
+				}
+				if !allowedLabels[l] {
+					t.Errorf("%s: unknown label %q in %q", e.Name(), l, m[0])
+				}
+				if removed && strings.HasPrefix(l, "agent:") && l != "agent:done" {
+					releasedTrigger = true
+				}
+				if !removed && l == "agent:done" {
+					addedDone = true
+				}
+			}
+		}
+		if !releasedTrigger {
+			t.Errorf("%s: no finish step removes a trigger label", e.Name())
+		}
+		if !addedDone {
+			t.Errorf("%s: no finish step adds agent:done", e.Name())
+		}
+	}
+}
+
+// TestSortieValidate runs the engine's own validator over each shipped
+// workflow, so a front-matter mistake fails here instead of at runtime.
+// Needs the sortie fork (the github-pr tracker and pi adapter live there);
+// skipped when no such binary is available.
+func TestSortieValidate(t *testing.T) {
+	bin := sortieBin()
+	if bin == "" {
+		t.Skip("no sortie binary available (set SORTIE_BIN, or build the fork to /tmp/gobin/sortie-fork)")
+	}
+	root := t.TempDir()
+	syncWorkflows(root, true)
+	dir := filepath.Join(root, ".sortie", "workflows")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := append(os.Environ(),
+		"SORTIE_TRACKER_PROJECT=owner/name",
+		"SORTIE_TRACKER_API_KEY=test",
+		"SORTIE_LOOP_WORKSPACES="+filepath.Join(root, "ws"),
+	)
+	dev := ""
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), "WORKFLOW.") {
+			continue
+		}
+		if e.Name() == "WORKFLOW.dev.md" {
+			dev = e.Name()
+		}
+		cmd := exec.Command(bin, "validate", e.Name())
+		cmd.Dir = dir
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Errorf("%s: %v\n%s", e.Name(), err, out)
+		}
+	}
+	if dev == "" {
+		t.Fatal("WORKFLOW.dev.md not installed")
+	}
+	// The engine must also accept the filter sortie-loop injects at launch.
+	cmd := exec.Command(bin, "validate", dev)
+	cmd.Dir = dir
+	cmd.Env = append(env,
+		"SORTIE_TRACKER_QUERY_FILTER=label:agent:build,in-progress -label:agent:plan -label:needs-human assignee:@me",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Errorf("injected filter rejected: %v\n%s", err, out)
+	}
+}
+
+// sortieBin returns a validator binary, preferring the fork build: the stock
+// engine has neither the github-pr tracker nor the pi adapter, so it rejects
+// every shipped workflow.
+func sortieBin() string {
+	candidates := []string{os.Getenv("SORTIE_BIN"), "/tmp/gobin/sortie-fork"}
+	if home := os.Getenv("HOME"); home != "" {
+		candidates = append(candidates, filepath.Join(home, ".local", "bin", "sortie-fork"))
+	}
+	for _, p := range candidates {
+		if p != "" {
+			if _, err := os.Stat(p); err == nil {
+				return p
+			}
+		}
+	}
+	return ""
+}
+
+func contains(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}
+
+// TestDefaultLabelsCoverWorkflows checks the seeded label set covers what the
+// shipped workflows act on, so setup creates every label the loops use.
+func TestDefaultLabelsCoverWorkflows(t *testing.T) {
+	have := map[string]bool{}
+	for _, l := range config.DefaultLabels {
+		have[l.Name] = true
+	}
+	for _, l := range []string{"agent:plan", "agent:build", "agent:review", "agent:merge", "in-progress", "agent:done", "needs-human"} {
+		if !have[l] {
+			t.Errorf("DefaultLabels is missing %q", l)
+		}
+	}
+	if len(config.DefaultLabels) != len(have) {
+		t.Errorf("DefaultLabels has duplicate names")
+	}
+	if have["agent:quick"] {
+		t.Errorf("agent:quick is parked and must not be seeded")
+	}
+}

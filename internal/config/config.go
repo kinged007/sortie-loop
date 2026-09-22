@@ -47,21 +47,20 @@ type Label struct {
 // DefaultLabels are the labels for the shipped loops, seeded into a new
 // config.yaml by setup. A custom loop adds its entries here, then setup
 // creates them on GitHub (tracker support is GitHub-only).
+//
+// Three roles, one colour each: a yellow trigger starts a loop, in-progress
+// is the claim an agent holds while it works, agent:done is the state an
+// agent leaves behind when it finishes, and needs-human escalates to a
+// person. Every name is prefixed agent: except the two that describe the
+// item rather than the agent.
 var DefaultLabels = []Label{
-	{"agent:quick", "fbca04", "Track: small change, merged to base, no PR"},
-	{"agent:plan-needed", "d876e3", "Track: plan must be written and approved first"},
-	{"agent:build", "1d76db", "Track: full development, lands via PR"},
-	{"agent:pr-fix", "1d76db", "Trigger: PR feedback needs a fix build (alias of agent:build)"},
-	{"backlog", "e4e669", "State: queued, not started"},
-	{"in-progress", "1d76db", "State: work in progress"},
-	{"review", "5319e7", "State: ready for human review"},
-	{"done", "0e8a16", "State: completed"},
+	{"agent:plan", "fbca04", "Trigger: write an implementation plan for this issue"},
+	{"agent:build", "fbca04", "Trigger: implement this issue, or apply review feedback on this PR"},
+	{"agent:review", "fbca04", "Trigger: review this PR"},
+	{"agent:merge", "fbca04", "Trigger: merge this PR"},
+	{"in-progress", "5319e7", "State: claimed by an agent"},
+	{"agent:done", "0e8a16", "State: agent finished"},
 	{"needs-human", "d73a4a", "Escalation: agent needs a person"},
-	{"agent:needs-review", "fbca04", "State: PR is waiting for agent review"},
-	{"agent:reviewed", "0e8a16", "State: agent review posted"},
-	{"agent:review-complete", "0e8a16", "State: review feedback addressed"},
-	{"agent:merge", "1d76db", "Command: agent should merge this PR"},
-	{"agent:merged", "0e8a16", "State: agent merged the PR"},
 }
 
 // Load reads .sortie/config.yaml under dir (repo root), applies environment
@@ -148,13 +147,24 @@ func Load(dir string) (*Config, error) {
 // WORKFLOW.*.md loop with no filters: entry gets defaultFilter (same
 // scope, no label constraint), so it starts but matches nothing until
 // the workflow's active_states or a filters: override narrows it.
+//
+// Every filter matches its own trigger plus in-progress, so an item whose
+// agent died mid-run is picked up again by the same loop. Sibling loops
+// exclude each other's triggers, so an orphan in progress is never claimed
+// by the wrong loop.
 var defaultFilters = map[string]string{
-	"plan":       "label:agent:plan-needed -label:needs-human",
-	"dev":        "label:agent:quick,agent:build -label:agent:plan-needed -label:needs-human",
-	"review":     "label:agent:needs-review -label:needs-human",
-	"review-fix": "label:agent:build,agent:pr-fix -label:needs-human",
-	"merge":      "label:agent:merge -label:needs-human",
+	"plan":       "label:agent:plan,in-progress -label:agent:build -label:needs-human",
+	"dev":        "label:agent:build,in-progress -label:agent:plan -label:needs-human",
+	"review":     "label:agent:review,in-progress -label:agent:build -label:agent:merge -label:needs-human",
+	"review-fix": "label:agent:build,in-progress -label:agent:review -label:agent:merge -label:needs-human",
+	"merge":      "label:agent:merge,in-progress -label:agent:build -label:agent:review -label:needs-human",
 }
+
+// DefaultLabelFilter returns the shipped query filter for a loop with no
+// milestone or assignee scope. The workflow files carry the same string, and
+// the env override injected at launch replaces it; both must agree or the
+// file would say one thing and the running loop another.
+func DefaultLabelFilter(name string) string { return defaultFilters[name] }
 
 const defaultFilter = "-label:needs-human"
 

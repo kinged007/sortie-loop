@@ -47,11 +47,30 @@ research-only: do not modify files, commit, push, or open PRs.
    - Approach (steps, files to change)
    - Risks / open questions
 
-Keep it concise. End the comment with: "Remove the `agent:plan-needed`
-label when this plan is approved to trigger development."
+Keep it concise. End the comment with: "Add the `agent:build` label when
+this plan is approved to trigger development."
 
 If you cannot complete the plan (blocked, missing info), post that as
 the issue comment instead: what you found, what is blocking, what you need.
+
+## Finishing the run
+
+You own the labels: remove your trigger and the claim, then mark the
+state. Chaining is off by default — a person applies trigger labels — so
+finish with `agent:done`. Add `needs-human` in the same command when a
+person has to look at this before anything else happens.
+
+```
+gh issue edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT \
+  --remove-label "agent:plan,in-progress" --add-label "agent:done"
+```
+
+To hand the issue straight to development when the plan is done, swap the
+added label for the dev loop's trigger:
+
+```
+--add-label "agent:build"
+```
 
 {{ if .issue.url }}
 
