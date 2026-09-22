@@ -36,27 +36,29 @@ Combine all findings, categorized by severity (Critical, High, Medium,
 Low), and close with a recommendation (Approve, Approve with Conditions,
 or Request Changes).
 
-If the recommendation is Approve or Approve with Conditions and the diff
-touches frontend code or anything that renders in the frontend (UI
-components, styles, templates, routes, API responses consumed by the UI),
-capture visual evidence before posting: run the app locally from the
-workspace (see the repo README for the dev command) and screenshot the
-affected surfaces with whatever headless browser or screenshot tool is
-available. Push the images to the PR branch under `.sortie/evidence/`
-(evidence files only — do not touch code) and embed them under
-`## Visual Evidence` as raw links
-(`https://raw.githubusercontent.com/$SORTIE_TRACKER_PROJECT/$head/.sortie/evidence/<file>.png`):
+Frontend rule: if the diff touches the frontend directly or indirectly
+(web code, API shapes the UI consumes, emails the UI triggers), obtain
+visual evidence with screenshots and review the visual changes before
+posting. Start the dev stack from the workspace (`make dev`; fall back
+to the repo README's dev command) and capture the affected surfaces
+with Obscura (`obscura fetch --allow-private-network <url> -s shot.png`
+for server-rendered pages; `obscura serve --allow-private-network` plus
+a CDP client for JS-rendered flows). No visual evidence on a
+frontend-touching PR means no approval: cap the recommendation at
+Request Changes (pending screenshots) and post with `--comment` rather
+than `--approve`. If the app cannot run locally, note the reason under
+`## Visual Evidence`.
 
-head=$(gh pr view {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --json headRefName --jq .headRefName)
-mkdir -p .sortie/evidence
-git add .sortie/evidence
-git commit -m "Add visual evidence for PR #{{ .issue.identifier }} review"
-git push origin "HEAD:$head"
+`gh pr review` has no `--attach` flag, so screenshots cannot ride on
+the review call. Post the review first, then attach the images with a
+follow-up comment. Never commit evidence files to the PR branch:
 
-Best effort: if the app cannot run locally or the push fails (e.g. fork
-PR), note the reason under `## Visual Evidence` and post without
-screenshots. A missing screenshot never turns an approval into
-Request Changes.
+`gh pr comment {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --attach './shot.png#<what the shot shows>' --body "Visual evidence for #{{ .issue.identifier }}: <before/after description>."`
+
+Repeat `--attach` for additional shots (max 50 per comment). A
+`![alt](./shot.png)` reference in `--body` is rewritten to the uploaded
+asset URL; attached files the body does not reference are appended
+automatically.
 
 Post the review with:
 
@@ -93,8 +95,9 @@ Structure `<review>` as:
 [Findings from Review 3]
 
 ## Visual Evidence
-[Screenshots of the affected UI, or "N/A — no frontend impact",
-or "Not captured: <reason>"]
+["N/A — no frontend impact", or "Not captured: <reason>", or
+"Attached in follow-up comment below" — screenshots go via
+`gh pr comment --attach`, never as branch files or raw links]
 
 ## Final Recommendation
 [Approve / Approve with Conditions / Request Changes with reasoning]
@@ -105,27 +108,36 @@ file:line reference and a concrete suggested fix. Do not modify files,
 branches, or push anything. Do not open issues or PRs.
 !Important: If a Review has already been conducted, then your follow up review should act as an update, instead of writing another fully detailed review.
 
-## Step 4: Finish — route the PR and release the claim
+## Step 4: Finish — set the label and release the claim
 
-Run these yourself before finishing; the loop only swaps the label it
-can derive (nothing for a PR still carrying `in-progress`).
+You own the labels. Chaining is off by default, so a person decides what
+happens after a review: always drop your trigger and the claim, then mark
+the state. Add `needs-human` to escalate, when a person has to read something before anything else happens.
 
-- Clean (recommendation is Approve with no Critical/High findings):
-  remove both working labels so the PR leaves every active state:
+```
+gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT \
+  --remove-label "agent:review,in-progress" --add-label "agent:done"
+```
 
-  ```
-  gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --remove-label "agent:needs-review,in-progress" --add-label "agent:reviewed,needs-human"
-  ```
+The posted review carries the outcome: an Approve needs no action from
+you, Critical or High findings are visible to whoever reads the PR next.
 
-- Not clean (Critical or High findings, or recommendation is Approve
-  with Conditions or Request Changes): signal the fix loop so a dev
-  agent applies your recommendations, then release the claim the same
-  way (the review-fix loop only watches PRs, so the label must land on
-  the PR, not an issue):
+### Chaining instead of stopping (opt-in)
 
-  ```
-  gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --remove-label "agent:needs-review,in-progress" --add-label "agent:build,agent:reviewed"
-  ```
+To let this loop route the PR itself, use the next loop's trigger as the
+`--add-label` value instead of `agent:done`:
+
+- `agent:build` — a fix agent applies your findings, then asks for another review. Use when the review is not clean.
+
+```
+gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT \
+  --remove-label "agent:review,in-progress" --add-label "agent:build"
+```
+
+- `~~agent:merge` — merge the PR now. Use only when the review is clean.~~
+
+A chained label must land on the PR, not on an issue: the fix and merge
+loops watch PRs only.
 
 {{ if .issue.url }}
 

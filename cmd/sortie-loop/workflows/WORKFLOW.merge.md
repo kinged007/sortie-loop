@@ -7,17 +7,21 @@ tracker:
   # clause rides along for visibility (the github-pr adapter lists via
   # /pulls, which runs no search syntax — active_states below is what
   # actually matches the label). Assignee scope is appended by
-  # sortie-loop config at launch, not here.
-  query_filter: "label:agent:merge -label:needs-human"
-  # Dispatch claims a taken PR by swapping agent:merge -> in-progress
-  # (auto, non-fatal), so a second agent never picks it up. in-progress
-  # sorts first: DeriveLabelState is first-match-wins, so the worker's
-  # own refresh must see its claim.
-  active_states: [in-progress, agent:merge]
+  # sortie-loop config at launch, not here. `in-progress` re-picks a merge
+  # that was interrupted; `-label:agent:review` and `-label:agent:build`
+  # keep review and fix orphans out (both loops claim with in-progress).
+  query_filter: "label:agent:merge,in-progress -label:agent:build -label:agent:review -label:needs-human"
+  # `todo` first so a PR carrying only agent:merge derives a state other
+  # than in-progress and the claim actually lands (see the dev workflow).
+  active_states: [todo, in-progress]
   in_progress_state: in-progress
-  handoff_state: agent:merged
+  # Backstop only: the agent removes agent:merge and in-progress and adds
+  # agent:done (plus needs-human when it could not merge).
+  handoff_state: agent:done
   handoff_evidence: off
-  terminal_states: [agent:review-complete]
+  # Nothing is terminal: agent:done does not close the PR, and terminal
+  # states would close it on transition.
+  terminal_states: []
   comments:
     on_completion: false
 
@@ -91,7 +95,8 @@ dispatch:
 {{/* Merge loop: label an approved PR `agent:merge` to have the agent
      read the PR plus all comments/reviews, file follow-up issues for
      remaining findings, and merge the branch. The prompt lives in
-     prompts/merge.md (via dispatch default above). Completion swaps the
-     label to `agent:merged`; on conflicts the agent labels `needs-human`
-     and the loop drops the PR via its `-label:needs-human` exclusion. */}}
+     prompts/merge.md (via dispatch default above). The agent removes
+     agent:merge and in-progress and adds agent:done; on conflicts it also
+     adds needs-human and the loop drops the PR via its -label:needs-human
+     exclusion. */}}
 Merge loop routing only — the prompt comes from the dispatch template.

@@ -3,23 +3,28 @@ tracker:
   kind: github-pr
   api_key: $SORTIE_TRACKER_API_KEY
   project: $SORTIE_TRACKER_PROJECT
-  # Strictly: PRs assigned to the token owner carrying agent:needs-review
+  # Strictly: PRs assigned to the token owner carrying agent:review
   # (assignee scope is appended by sortie-loop config at launch, enforced
   # client-side by the adapter); the label
   # clause rides along for visibility (the github-pr adapter lists via
   # /pulls, which runs no search syntax — active_states below is what
-  # actually matches the label). -label:needs-human keeps escalated PRs
-  # out, matched client-side by the adapter.
-  query_filter: "label:agent:needs-review -label:needs-human"
-  # Dispatch claims a taken PR by swapping agent:needs-review -> in-progress
-  # (auto, non-fatal), so a second agent never picks it up. Do not add
-  # agent:needs-review here: DeriveLabelState is first-match-wins, so the
-  # claim label must sort first for the worker's own refresh to see it.
-  active_states: [in-progress, agent:needs-review]
+  # actually matches the label). `in-progress` lets the same loop pick a
+  # review back up after a crash; `-label:agent:build` and
+  # `-label:agent:merge` keep a fix or merge orphan out. -label:needs-human
+  # keeps escalated PRs out, matched client-side by the adapter.
+  query_filter: "label:agent:review,in-progress -label:agent:build -label:agent:merge -label:needs-human"
+  # `todo` first so a PR that carries only agent:review derives a state
+  # other than in-progress and the claim actually lands (see the dev
+  # workflow); it is a derivation fallback, never a label.
+  active_states: [todo, in-progress]
   in_progress_state: in-progress
-  handoff_state: agent:reviewed
+  # Backstop only: the agent removes agent:review and in-progress and adds
+  # agent:done (or agent:build when it wants the fix loop to run).
+  handoff_state: agent:done
   handoff_evidence: off
-  terminal_states: [agent:review-complete]
+  # Nothing is terminal: agent:done does not close the PR, and terminal
+  # states would close it on transition.
+  terminal_states: []
   comments:
     on_completion: false
 
@@ -73,10 +78,9 @@ dispatch:
     template: ./prompts/review.md
 ---
 
-{{/* Review loop: label a PR `agent:needs-review` to get a three-pass
-     review. The prompt lives in prompts/review.md (via dispatch default
-     above): Step 4 applies `agent:build` to the PR when the review is
-     not clean, routing it to the review-fix loop. Completion swaps the
-     label to `agent:reviewed`; apply `agent:review-complete` when done
-     with the feedback. */}}
+{{/* Review loop: label a PR `agent:review` to get a three-pass review.
+     The prompt lives in prompts/review.md (via dispatch default above).
+     By default the agent reviews and hands the decision back: it removes
+     agent:review and adds agent:done. To let it route instead, uncomment
+     the chaining rules in prompts/review.md Step 4. */}}
 Review loop routing only — the prompt comes from the dispatch template.

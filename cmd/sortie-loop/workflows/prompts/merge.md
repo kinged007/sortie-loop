@@ -92,21 +92,22 @@ Structure `<comment>` as:
 Every section is required; write "None" only when true. Do not compress
 this into a few lines.
 
-- Merged: release the claim yourself — remove both working labels and
-  apply `agent:merged` (the loop only swaps the label it can derive,
-  nothing for a PR still carrying `in-progress`):
+- Merged: finish the labels yourself — drop the trigger and the claim,
+  then mark the state:
 
   ```
-  gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --remove-label "agent:merge,in-progress" --add-label "agent:merged"
+  gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT \
+    --remove-label "agent:merge,in-progress" --add-label "agent:done"
   ```
-- Not merged (conflicts you cannot resolve, or blocking items): signal for
-  human help before finishing — run both commands so the loop drops the PR
-  and a person can find it:
+- Not merged (conflicts you cannot resolve, or blocking items): stop the
+  run and flag it for a person. The loop drops the PR via its
+  `-label:needs-human` exclusion, so nothing picks it up again:
 
   ```
   mkdir -p .sortie && echo "needs-human-review" > .sortie/status
   gh pr comment {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --body "<comment>"
-  gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --add-label "needs-human"
+  gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT \
+    --remove-label "agent:merge,in-progress" --add-label "agent:done,needs-human"
   ```
 
 {{ if .issue.url }}
