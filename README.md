@@ -230,6 +230,18 @@ root (default: current directory).
   workspaces/      # per-item agent checkouts (one subdir per loop)
 ```
 
+`setup` ignores `.sortie/` wholesale in `.gitignore` — run state
+(env, workspaces, db files, local config) stays untracked. To share
+loop config in git instead (keep `token: ""` and use env for secrets),
+replace `.sortie/` with:
+
+```gitignore
+.sortie/*
+!.sortie/config.yaml
+!.sortie/workflows/
+.sortie-*.db
+```
+
 `.sortie/config.yaml`:
 
 ```yaml

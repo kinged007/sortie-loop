@@ -58,6 +58,62 @@ func TestSyncWorkflowsKeepsEditsFillsGaps(t *testing.T) {
 	}
 }
 
+func TestEnsureGitignoreIgnoresSortieWholesale(t *testing.T) {
+	root := t.TempDir()
+	// Fresh repo: .gitignore is created with the wholesale entry only.
+	ensureGitignore(root)
+	raw, _ := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if !strings.Contains(string(raw), ".sortie/\n") {
+		t.Fatalf(".gitignore = %q, want wholesale .sortie/ entry", raw)
+	}
+	for _, e := range oldGitignoreEntries {
+		if strings.Contains(string(raw), e+"\n") {
+			t.Errorf(".gitignore still has granular entry %q", e)
+		}
+	}
+	// Old granular scheme is migrated to wholesale on re-run.
+	os.WriteFile(filepath.Join(root, ".gitignore"),
+		[]byte("node_modules\n"+strings.Join(oldGitignoreEntries, "\n")+"\n"), 0o644)
+	ensureGitignore(root)
+	raw, _ = os.ReadFile(filepath.Join(root, ".gitignore"))
+	if !strings.Contains(string(raw), "node_modules\n") {
+		t.Errorf("existing entries lost: %q", raw)
+	}
+	if !strings.Contains(string(raw), ".sortie/\n") {
+		t.Errorf("no wholesale entry after migration: %q", raw)
+	}
+	// Selective tracking (negations) is left alone.
+	os.WriteFile(filepath.Join(root, ".gitignore"),
+		[]byte(".sortie/*\n!.sortie/config.yaml\n"), 0o644)
+	ensureGitignore(root)
+	raw, _ = os.ReadFile(filepath.Join(root, ".gitignore"))
+	if strings.Contains(string(raw), ".sortie/\n") {
+		t.Errorf("selective gitignore overwritten: %q", raw)
+	}
+}
+
+func TestLinkFileReplacesStaleDest(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "engine")
+	os.WriteFile(target, []byte("x"), 0o755)
+	dest := filepath.Join(root, "bin", "sortie")
+	if err := linkFile(dest, target); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.Readlink(dest); err != nil || got != target {
+		t.Fatalf("readlink = %q, %v; want %q", got, err, target)
+	}
+	// Re-linking to a new target replaces the old symlink.
+	newTarget := filepath.Join(root, "engine2")
+	os.WriteFile(newTarget, []byte("y"), 0o755)
+	if err := linkFile(dest, newTarget); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.Readlink(dest); got != newTarget {
+		t.Errorf("readlink = %q, want %q", got, newTarget)
+	}
+}
+
 func TestDiscoverWorkflowsPicksUpNewFile(t *testing.T) {
 	root := t.TempDir()
 	syncWorkflows(root, true)
