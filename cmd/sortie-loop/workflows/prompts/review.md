@@ -4,6 +4,34 @@ request #{{ .issue.identifier }} in $SORTIE_TRACKER_PROJECT
 ("{{ .issue.title }}") by executing three reviews sequentially, then
 synthesizing the results into one assessment.
 
+## Process lifecycle (mandatory)
+
+You own every process and temporary resource you start. Before reporting
+completion, stop them and verify that each one is gone.
+
+1. Prefer a foreground supervisor with signal and exit traps. If a service
+   must run in the background, use a finite timeout budget.
+   Track each PID, port, and temporary directory in a run-scoped state file.
+2. Clean up on success, failure, timeout, cancellation, and every early
+   exit. Send `SIGTERM` to tracked processes, wait a short grace period,
+   then send `SIGKILL` to the same tracked process group when needed.
+   Only signal PIDs or process groups you created and recorded. Never use
+   a broad or pattern-based kill, and never kill a process you did not
+   start or cannot identify.
+3. For the Obscura CDP server, use this one-hour bounded wrapper. Keep it
+   in the foreground when possible and record its PID and storage
+   directory if it must be backgrounded:
+
+   ```bash
+   timeout --signal=TERM --kill-after=15s 1h \
+     obscura serve --allow-private-network --storage-dir <session-dir>
+   ```
+
+4. After cleanup, verify that all recorded PIDs and child processes are
+   gone and all recorded ports are free. Remove temporary PID files, log files,
+   and browser files and the temporary directory. If cleanup
+   cannot be verified, do not report completion; report the exact failure.
+
 ## Step 1: Gather PR information and existing discussion
 
 The workspace already has the PR head checked out (`git log --oneline -3`
@@ -42,8 +70,9 @@ visual evidence with screenshots and review the visual changes before
 posting. Start the dev stack from the workspace (`make dev`; fall back
 to the repo README's dev command) and capture the affected surfaces
 with Obscura (`obscura fetch --allow-private-network <url> -s shot.png`
-for server-rendered pages; `obscura serve --allow-private-network` plus
-a CDP client for JS-rendered flows). No visual evidence on a
+for server-rendered pages; for JS-rendered flows, start `obscura serve`
+only through the one-hour bounded wrapper in **Process lifecycle**, then
+use a CDP client). No visual evidence on a
 frontend-touching PR means no approval: cap the recommendation at
 Request Changes (pending screenshots) and post with `--comment` rather
 than `--approve`. If the app cannot run locally, note the reason under
@@ -58,7 +87,8 @@ follow-up comment. Never commit evidence files to the PR branch:
 Repeat `--attach` for additional shots (max 50 per comment). A
 `![alt](./shot.png)` reference in `--body` is rewritten to the uploaded
 asset URL; attached files the body does not reference are appended
-automatically.
+automatically. After the evidence is uploaded and cleanup is verified,
+remove the screenshots and Obscura storage.
 
 Post the review with:
 

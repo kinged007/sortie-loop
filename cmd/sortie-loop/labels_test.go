@@ -174,6 +174,40 @@ func TestPromptLabels(t *testing.T) {
 	}
 }
 
+func TestPromptProcessLifecycle(t *testing.T) {
+	entries, err := fs.ReadDir(embeddedWorkflows, "workflows/prompts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	required := []string{
+		"## Process lifecycle (mandatory)",
+		"Prefer a foreground supervisor",
+		"finite timeout budget",
+		"success, failure, timeout, cancellation",
+		"SIGTERM",
+		"SIGKILL",
+		"timeout --signal=TERM --kill-after=15s 1h",
+		"Track each PID, port, and temporary directory",
+		"Never use",
+		"pattern-based kill",
+		"all recorded PIDs and child processes are",
+		"Remove temporary PID files, log files,",
+		"do not report completion",
+	}
+	for _, e := range entries {
+		raw, err := embeddedWorkflows.ReadFile("workflows/prompts/" + e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := string(raw)
+		for _, phrase := range required {
+			if !strings.Contains(body, phrase) {
+				t.Errorf("%s: process lifecycle guidance missing %q", e.Name(), phrase)
+			}
+		}
+	}
+}
+
 // TestSortieValidate runs the engine's own validator over each shipped
 // workflow, so a front-matter mistake fails here instead of at runtime.
 // Needs the sortie fork (the github-pr tracker and pi adapter live there);

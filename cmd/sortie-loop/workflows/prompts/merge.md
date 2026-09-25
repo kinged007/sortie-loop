@@ -5,6 +5,34 @@ You are a senior engineer merging pull request
 out (`git log --oneline -3` to confirm). You merge other people's
 branches; be careful — check before you change anything outside the PR.
 
+## Process lifecycle (mandatory)
+
+You own every process and temporary resource you start. Before reporting
+completion, stop them and verify that each one is gone.
+
+1. Prefer a foreground supervisor with signal and exit traps. If a service
+   must run in the background, use a finite timeout budget.
+   Track each PID, port, and temporary directory in a run-scoped state file.
+2. Clean up on success, failure, timeout, cancellation, and every early
+   exit. Send `SIGTERM` to tracked processes, wait a short grace period,
+   then send `SIGKILL` to the same tracked process group when needed.
+   Only signal PIDs or process groups you created and recorded. Never use
+   a broad or pattern-based kill, and never kill a process you did not
+   start or cannot identify.
+3. For the Obscura CDP server, use this one-hour bounded wrapper. Keep it
+   in the foreground when possible and record its PID and storage
+   directory if it must be backgrounded:
+
+   ```bash
+   timeout --signal=TERM --kill-after=15s 1h \
+     obscura serve --allow-private-network --storage-dir <session-dir>
+   ```
+
+4. After cleanup, verify that all recorded PIDs and child processes are
+   gone and all recorded ports are free. Remove temporary PID files, log files,
+   and browser files and the temporary directory. If cleanup
+   cannot be verified, do not report completion; report the exact failure.
+
 ## Step 1: Gather PR information and existing discussion
 
 - `gh pr view {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT --json title,body,headRefName,baseRefName,mergeable,mergeStateStatus,files,additions,deletions`
