@@ -21,13 +21,9 @@ func runSetup(dir string) {
 	if err != nil {
 		fatal(err)
 	}
-	// Refuse to run inside the sortie-loop checkout itself: setup belongs
-	// in the target repo, and running here would pollute this repo.
-	if _, err := os.Stat(filepath.Join(abs, "cmd", "sortie-loop", "main.go")); err == nil {
-		if _, err := os.Stat(filepath.Join(abs, "go.mod")); err == nil {
-			fatal(fmt.Errorf("refusing to set up inside the sortie-loop checkout itself; cd to the target repo first"))
-		}
-	}
+	// Dogfooding is supported: setup runs in this checkout like any other
+	// repo. Everything it writes lands under .sortie/, which
+	// ensureGitignore keeps untracked.
 	if _, err := exec.LookPath("gh"); err != nil {
 		fatal(fmt.Errorf("gh CLI not found"))
 	}
@@ -68,6 +64,7 @@ func runSetup(dir string) {
 	}
 	syncWorkflows(abs, true)
 	fmt.Println("workflows installed in", filepath.Join(abs, ".sortie", "workflows"))
+	ensureSortieLink()
 	repo := configRepo(abs)
 	ensureGitignore(abs)
 	// Labels come from the config file so custom loops can add their own:
@@ -91,18 +88,59 @@ func runSetup(dir string) {
 	fmt.Println("labels synced to", repo)
 }
 
-// ensureGitignore appends the loop's local-state entries to .gitignore,
-// creating the file if missing. Existing content is left untouched.
+// oldGitignoreEntries is the granular scheme setup wrote before ignoring
+// .sortie/ wholesale; dropped as subsumed when seen.
+var oldGitignoreEntries = []string{
+	".sortie/.env.loop", ".sortie/workflows/", ".sortie/workspaces/", ".sortie-*.db",
+}
+
+// selectiveGitignore replaces `.sortie/` for teams that share loop config
+// in git. Only track config.yaml with `token: ""` — secrets stay in env.
+// (`.sortie/*` rather than `.sortie/` so the `!` re-includes take effect:
+// git never descends into an excluded directory.)
+const selectiveGitignore = `# sortie-loop: track shared config, ignore run state
+.sortie/*
+!.sortie/config.yaml
+!.sortie/workflows/
+.sortie-*.db`
+
+// ensureGitignore ignores .sortie/ wholesale — generated env, workspaces,
+// db files, and local config all stay untracked — creating .gitignore if
+// missing. Stale lines from the old granular scheme are removed. When the
+// file re-includes parts of .sortie/ via negations the user tracks
+// selectively on purpose, so sortie lines are left alone.
 func ensureGitignore(dir string) {
-	want := []string{".sortie/.env.loop", ".sortie/workflows/", ".sortie/workspaces/", ".sortie-*.db", "sortie-loop"}
 	path := filepath.Join(dir, ".gitignore")
 	raw, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		fatal(fmt.Errorf("read .gitignore: %w", err))
 	}
+	var selective bool
 	have := map[string]bool{}
 	for _, line := range strings.Split(string(raw), "\n") {
-		have[strings.TrimSpace(line)] = true
+		t := strings.TrimSpace(line)
+		have[t] = true
+		if strings.HasPrefix(t, "!") && strings.Contains(t, ".sortie") {
+			selective = true
+		}
+	}
+	if selective {
+		fmt.Println(".gitignore tracks parts of .sortie/ — leaving ignore rules alone")
+		return
+	}
+	want := []string{".sortie/", "sortie-loop"}
+	old := map[string]bool{}
+	for _, e := range oldGitignoreEntries {
+		old[e] = true
+	}
+	var kept []string
+	var dropped bool
+	for _, line := range strings.Split(string(raw), "\n") {
+		if old[strings.TrimSpace(line)] {
+			dropped = true
+			continue
+		}
+		kept = append(kept, line)
 	}
 	var missing []string
 	for _, w := range want {
@@ -110,19 +148,23 @@ func ensureGitignore(dir string) {
 			missing = append(missing, w)
 		}
 	}
-	if len(missing) == 0 {
+	if len(missing) == 0 && !dropped {
+		fmt.Println(".sortie/ is fully ignored")
 		return
 	}
-	out := strings.TrimRight(string(raw), "\n")
+	out := strings.TrimRight(strings.Join(kept, "\n"), "\n")
 	if len(out) > 0 {
 		out += "\n"
 	}
-	out += "# sortie-loop local state (added by sortie-loop setup)\n"
+	if !have["# sortie-loop local state (added by sortie-loop setup)"] {
+		out += "# sortie-loop local state (added by sortie-loop setup)\n"
+	}
 	for _, m := range missing {
 		out += m + "\n"
 	}
 	if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
 		fatal(fmt.Errorf("write .gitignore: %w", err))
 	}
-	fmt.Println("updated", path)
+	fmt.Println("updated", path, "— .sortie/ is now fully ignored")
+	fmt.Println("To share loop config in git instead, replace `.sortie/` with:\n" + selectiveGitignore)
 }
