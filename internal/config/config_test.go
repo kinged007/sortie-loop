@@ -38,8 +38,8 @@ func TestLoadEnvAndMilestone(t *testing.T) {
 	if cfg.Repo != "o/r" || cfg.Token != "tok" || cfg.Tracker != "o/r" {
 		t.Fatalf("unexpected config: %+v", cfg)
 	}
-	if cfg.FilterFor("dev") != `label:agent:build,in-progress -label:agent:plan -label:needs-human milestone:"v2"` {
-		t.Errorf("dev filter: %q", cfg.FilterFor("dev"))
+	if cfg.FilterFor("build") != `label:agent:build,in-progress -label:agent:plan -label:needs-human milestone:"v2"` {
+		t.Errorf("build filter: %q", cfg.FilterFor("build"))
 	}
 	if cfg.FilterFor("review") != `label:agent:review,in-progress -label:agent:build -label:agent:merge -label:needs-human milestone:"v2"` {
 		t.Errorf("review filter should exclude needs-human, got %q", cfg.FilterFor("review"))
@@ -127,7 +127,7 @@ func TestLoadFilterOverrides(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, ".sortie"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".sortie", "config.yaml"),
-		[]byte("repo: file/o\ntoken: filetok\nfilters:\n  triage: label:agent:triage\n  dev: label:agent:custom\n"), 0o644)
+		[]byte("repo: file/o\ntoken: filetok\nfilters:\n  triage: label:agent:triage\n  build: label:agent:custom\n"), 0o644)
 	t.Setenv("SORTIE_LOOP_REPO", "")
 	t.Setenv("SORTIE_LOOP_TOKEN", "")
 	t.Setenv("SORTIE_LOOP_MILESTONE", "")
@@ -142,8 +142,8 @@ func TestLoadFilterOverrides(t *testing.T) {
 	if cfg.FilterFor("triage") != "label:agent:triage" {
 		t.Errorf("override filter: %q", cfg.FilterFor("triage"))
 	}
-	if cfg.FilterFor("dev") != "label:agent:custom" {
-		t.Errorf("known-loop override: %q", cfg.FilterFor("dev"))
+	if cfg.FilterFor("build") != "label:agent:custom" {
+		t.Errorf("known-loop override: %q", cfg.FilterFor("build"))
 	}
 	if cfg.FilterFor("merge") != "label:agent:merge,in-progress -label:agent:build -label:agent:review -label:needs-human" {
 		t.Errorf("untouched default: %q", cfg.FilterFor("merge"))
@@ -162,6 +162,12 @@ func TestDefaultLabels(t *testing.T) {
 		{"in-progress", "5319e7", "State: claimed by an agent"},
 		{"agent:done", "0e8a16", "State: agent finished"},
 		{"needs-human", "d73a4a", "Escalation: agent needs a person"},
+		{"united-into", "c5def5", "State: work folded into another issue's fix; that issue is the one to read"},
+		{"backlog", "ededed", "Deferred by a person; do not dispatch"},
+		{"P0", "d73a4a", "Priority: highest, dispatch before everything else"},
+		{"P1", "f9826c", "Priority: high"},
+		{"P2", "fbca04", "Priority: normal"},
+		{"P3", "ededed", "Priority: lowest"},
 	}
 	if len(DefaultLabels) != len(want) {
 		t.Fatalf("DefaultLabels = %d labels, want %d", len(DefaultLabels), len(want))
@@ -174,10 +180,14 @@ func TestDefaultLabels(t *testing.T) {
 }
 
 // TestDefaultLabelPrefix enforces the naming rule: agent-owned labels carry
-// the agent: prefix, the two item-level labels do not.
+// the agent: prefix, the item-level and person-owned labels do not.
 func TestDefaultLabelPrefix(t *testing.T) {
+	itemLevel := map[string]bool{
+		"in-progress": true, "needs-human": true, "united-into": true,
+		"backlog": true, "P0": true, "P1": true, "P2": true, "P3": true,
+	}
 	for _, l := range DefaultLabels {
-		unprefixed := l.Name == "in-progress" || l.Name == "needs-human"
+		unprefixed := itemLevel[l.Name]
 		if unprefixed == strings.HasPrefix(l.Name, "agent:") {
 			t.Errorf("label %q: wrong prefix (want prefixed=%v)", l.Name, !unprefixed)
 		}

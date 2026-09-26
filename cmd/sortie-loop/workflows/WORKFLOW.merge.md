@@ -50,6 +50,13 @@ hooks:
   # `git fetch origin <base>` works on reused workspaces too.
   before_run: |
     git rev-parse --git-dir >/dev/null 2>&1 || exit 0
+    # Heal any git operation an earlier attempt or the agent left in flight.
+    # An unresolved index makes every later checkout fail, and the retry
+    # reuses this directory, so the poison would persist forever.
+    git rebase --abort 2>/dev/null || true
+    git merge --abort 2>/dev/null || true
+    git cherry-pick --abort 2>/dev/null || true
+    git reset --hard >/dev/null
     git remote get-url origin >/dev/null 2>&1 || git remote add origin "$SORTIE_LOOP_CLONE_URL"
     # Legacy workspaces are shallow from the old after_create. A shallow
     # PR graft plus a shallow base root share no merge-base, so git merge

@@ -34,10 +34,10 @@ tracker:
 polling:
   interval_ms: 60000
 
-db_path: .sortie-dev.db
+db_path: .sortie-build.db
 
 workspace:
-  root: $SORTIE_LOOP_WORKSPACES/dev
+  root: $SORTIE_LOOP_WORKSPACES/build
   retention_days: 30
 
 hooks:
@@ -46,6 +46,13 @@ hooks:
   after_create: |
     git clone --depth 1 "$SORTIE_LOOP_CLONE_URL" .
   before_run: |
+    # Heal any git operation an earlier attempt or the agent left in flight.
+    # An unresolved index makes every later checkout fail, and the retry
+    # reuses this directory, so the poison would persist forever.
+    git rebase --abort 2>/dev/null || true
+    git merge --abort 2>/dev/null || true
+    git cherry-pick --abort 2>/dev/null || true
+    git reset --hard >/dev/null
     base=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's@^origin/@@')
     git fetch origin "$base"
     git checkout -B "auto/$SORTIE_ISSUE_IDENTIFIER" "origin/$base"
@@ -54,7 +61,10 @@ hooks:
     git diff --cached --quiet || git commit -m "$SORTIE_ISSUE_IDENTIFIER: agent changes"
     # A retry reuses the auto/* branch, so the remote may already have
     # commits from an earlier attempt; rebase onto it instead of failing.
-    git fetch origin "auto/$SORTIE_ISSUE_IDENTIFIER" 2>/dev/null && git rebase "origin/auto/$SORTIE_ISSUE_IDENTIFIER" || true
+        # A conflicted rebase left in place poisons the workspace: the next
+    # before_run cannot resolve the index and fails forever. Abort instead
+    # of swallowing the error, so the retry starts from a clean tree.
+    git fetch origin "auto/$SORTIE_ISSUE_IDENTIFIER" 2>/dev/null && git rebase "origin/auto/$SORTIE_ISSUE_IDENTIFIER" || git rebase --abort
     git push -u origin "auto/$SORTIE_ISSUE_IDENTIFIER"
   # before_remove hook needs revision to avoid data loss
   # before_remove: |
@@ -91,7 +101,7 @@ pi:
 #claude-code:
 #  model: "sonnet"
 
-# ponytail: one shared dev loop. Split into WORKFLOW.quick/build.md when
+# ponytail: one shared build loop. Split into WORKFLOW.quick/build.md when
 # quick vs build need different models — dispatch cannot vary `pi.model`.
 dispatch:
   default:
@@ -124,9 +134,9 @@ reactions:
     escalation_label: needs-human
 ---
 
-{{/* Dev loop: issues labeled `agent:build`. The loop adds `in-progress`
+{{/* Build loop: issues labeled `agent:build`. The loop adds `in-progress`
      while an agent works and `agent:done` when it exits. Prompts live in
      prompts/: dispatch routes everything to build.md; quick.md is parked
      with its commented rule. The body below never renders; it documents
      the routing. */}}
-Dev loop routing only — the prompt comes from the dispatch template.
+Build loop routing only — the prompt comes from the dispatch template.

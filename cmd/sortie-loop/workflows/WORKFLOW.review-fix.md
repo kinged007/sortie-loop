@@ -8,11 +8,11 @@ tracker:
   # /pulls, which runs no search syntax — active_states below is what
   # actually matches the label). Assignee scope is appended by
   # sortie-loop config at launch, not here. This loop shares the
-  # agent:build trigger with the dev loop: on an issue it means implement,
+  # agent:build trigger with the build loop: on an issue it means implement,
   # on a PR it means apply the posted review finding.
   query_filter: "label:agent:build,in-progress -label:agent:review -label:agent:merge -label:needs-human"
   # `todo` first so a PR carrying only agent:build derives a state other
-  # than in-progress and the claim actually lands (see the dev workflow).
+  # than in-progress and the claim actually lands (see the build workflow).
   active_states: [todo, in-progress]
   in_progress_state: in-progress
   # Backstop only: the agent removes agent:build and in-progress and adds
@@ -46,6 +46,13 @@ hooks:
   # Step 3 works on reused workspaces too.
   before_run: |
     git rev-parse --git-dir >/dev/null 2>&1 || exit 0
+    # Heal any git operation an earlier attempt or the agent left in flight.
+    # An unresolved index makes every later checkout fail, and the retry
+    # reuses this directory, so the poison would persist forever.
+    git rebase --abort 2>/dev/null || true
+    git merge --abort 2>/dev/null || true
+    git cherry-pick --abort 2>/dev/null || true
+    git reset --hard >/dev/null
     git remote get-url origin >/dev/null 2>&1 || git remote add origin "$SORTIE_LOOP_CLONE_URL"
     if [ -f .git/shallow ]; then git fetch --unshallow origin 2>/dev/null || true; fi
   timeout_ms: 60000
@@ -85,11 +92,11 @@ dispatch:
 ---
 
 {{/* Review-fix loop: watches github-pr for PRs labeled `agent:build`
-     (the same trigger the dev loop uses on issues). The agent checks out
+     (the same trigger the build loop uses on issues). The agent checks out
      the PR head, applies the posted review feedback, and pushes to the
-     same branch. By default it hands the result back to a person:
-     agent:build and in-progress off, agent:done on. Uncomment the
-     chaining line in prompts/review-fix.md Step 5 to have it ask for
-     another review pass instead. This keeps the review loop read-only:
-     it never edits code, it only routes. */}}
+     same branch. It then routes the PR on: agent:build, in-progress and
+     agent:done off, agent:review on, so a fresh review runs. Blocked work
+     keeps the trigger and adds needs-human, which the loop's
+     -label:needs-human exclusion drops. This keeps the review loop
+     read-only: it never edits code, it only routes. */}}
 Review-fix loop routing only — the prompt comes from the dispatch template.

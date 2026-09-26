@@ -34,7 +34,7 @@ There is no queue and no webhook. Every loop polls GitHub roughly every
 60 seconds with a search query built from three parts:
 
 1. **Label filter** — each loop watches its own trigger label plus
-   `in-progress`. `dev` looks for `label:agent:build,in-progress`,
+   `in-progress`. `build` looks for `label:agent:build,in-progress`,
    `review` for `label:agent:review,in-progress`, and so on (see Loops
    below). Adding a trigger label enqueues the item; the agent removing
    it plus adding `agent:done` takes it out of every loop. Sibling loops
@@ -57,14 +57,16 @@ and comments. The agent follows that prompt: it re-reads the full
 comment thread with `gh` (comments can override the description), makes
 the change, runs the project's checks, pushes, and posts a structured
 summary comment (Summary / Changes / Verification / Issues encountered).
-State moves forward through labels — e.g. `dev` opens a PR, a human
-adds `agent:review`, `review` reviews it, `merge` merges it.
+State moves forward through labels — `build` opens a PR and labels it
+`agent:review`, `review` sends findings back as `agent:build` or stops on
+`agent:done`, and a person (or the PM prompt, see below) labels an
+approved PR `agent:merge`.
 
 ## Labels
 
-Seven labels, one role each. Only the four triggers are ever applied by a
-person (or by a chained agent, see below); the other three are set by the
-agents themselves.
+Thirteen labels, one role each. The four triggers are applied by a person, a
+chained agent, or the PM prompt; P0–P3 are a person's triage call; the rest
+are set by the agents themselves.
 
 | Label | Colour | Role |
 |-------|--------|------|
@@ -75,6 +77,12 @@ agents themselves.
 | `in-progress` | purple | Claim: an agent is working on this right now |
 | `agent:done` | green | State: the agent finished |
 | `needs-human` | red | Escalation: a person has to look at this |
+| `united-into` | blue | State: folded into another issue's fix; that issue is the one to read |
+| `backlog` | grey | Deferred by a person; no loop and no PM should touch it |
+| `P0` | red | Priority: dispatch before everything else |
+| `P1` | orange | Priority: high |
+| `P2` | yellow | Priority: normal |
+| `P3` | grey | Priority: lowest |
 
 The contract, in one line: **a trigger starts a loop, the loop adds
 `in-progress` and keeps the trigger while it works, and the run ends with
@@ -88,26 +96,32 @@ neither an active state nor a terminal one: it marks the item finished
 without closing it, and re-labelling the item with a trigger is how you
 run it again.
 
-### Chaining loops (opt-in)
+### Chaining loops
 
-By default only a person applies trigger labels. Every `WORKFLOW.*.md` and
-every prompt documents the one-line change that lets an agent route its
-own output instead of stopping at `agent:done`. In a prompt, swap the
-label added by the finish step:
+The build, review, and review-fix prompts route their own output by
+default: each drops its trigger and the claim, then applies the next
+stage's trigger in the same command.
 
 ```sh
-# stop (default)
+# build: the PR it just opened goes to the review loop
+gh pr edit <n> --add-assignee @me --add-label "agent:review"
+# review: findings to fix, hand them to a fix agent
+gh pr edit <n> --remove-label "agent:review,in-progress,agent:done" --add-label "agent:build"
+# review: clean, stop and wait for a person
 gh pr edit <n> --remove-label "agent:review,in-progress" --add-label "agent:done"
-# chain: the review found issues, so have a fix agent apply them
-gh pr edit <n> --remove-label "agent:review,in-progress" --add-label "agent:build"
-# chain: the review was clean, so merge it
-gh pr edit <n> --remove-label "agent:review,in-progress" --add-label "agent:merge"
+# review-fix: fixed branch, send it back for another review
+gh pr edit <n> --remove-label "agent:build,in-progress,agent:done" --add-label "agent:review"
 ```
+
+`agent:done` keeps every loop away from an item, so a trigger meant for
+the next stage is always added in the same command as its removal. No
+agent applies `agent:merge`: an approved PR waits for a person, or for
+the PM prompt in `.sortie/pm-agent.md`, to label it.
 
 The chained label must land on the item the next loop watches: PR loops
 (`review`, `review-fix`, `merge`) watch PRs, so label the PR, not the
 issue it came from. `.sortie/workflows/prompts/review.md` Step 4 and
-`review-fix.md` Step 5 carry both forms ready to uncomment.
+`review-fix.md` Step 5 carry these forms.
 
 ## The loops
 
@@ -117,12 +131,12 @@ runs as its own loop process):
 | Loop | Watches | Does |
 |------|---------|------|
 | `plan` | issues with `agent:plan` | Writes an implementation plan as an issue comment. The agent removes `agent:plan` and adds `agent:done`; a human reviews the plan and labels the issue `agent:build` to trigger development. |
-| `dev` | issues with `agent:build` | Implements the change and opens a PR (the parked `agent:quick` track merges straight to the base branch with no PR — see `prompts/quick.md`). |
-| `review` | PRs with `agent:review` | Reviews the PR in three passes. Ends on `agent:done` by default; chain it to `agent:build` (fix) or `agent:merge` (clean) instead. |
-| `review-fix` | PRs with `agent:build` | Applies posted review feedback and pushes to the PR branch. Chain it to `agent:review` for another pass. |
+| `build` | issues with `agent:build` | Implements the change and opens a PR, then labels that PR `agent:review` and assigns it to the token owner. (The parked `agent:quick` track merges straight to the base branch with no PR — see `prompts/quick.md`.) |
+| `review` | PRs with `agent:review` | Reviews the PR in three passes, then routes on its own verdict: `agent:build` when there are findings to fix, `agent:done` when the review is clean. |
+| `review-fix` | PRs with `agent:build` | Applies posted review feedback, pushes to the PR branch, then hands the PR back as `agent:review` for another pass. |
 | `merge` | PRs with `agent:merge` | Reads the PR plus all comments, files follow-up issues for leftovers, and merges into the PR's base branch. Conflicts end on `agent:done,needs-human` and the loop drops the PR. Uses `git merge --ff-only`, so a branch that drifted behind base stalls and escalates instead of rebasing. |
 
-The same `agent:build` trigger runs `dev` on an issue and `review-fix` on a
+The same `agent:build` trigger runs `build` on an issue and `review-fix` on a
 PR: the tracker kind decides which loop can see the item at all, and each
 agent reads the item to know which job it is.
 
@@ -206,7 +220,8 @@ your personal name.
 
 ```sh
 cd your-repo
-sortie-loop setup    # writes .sortie/config.yaml, updates .gitignore, creates the labels
+sortie-loop setup    # writes .sortie/config.yaml, updates .gitignore, creates the labels,
+                     # and installs .sortie/pm-agent.md (a project-manager prompt)
 sortie-loop          # run every WORKFLOW.*.md loop (Ctrl-C stops all)
 ```
 
@@ -281,7 +296,7 @@ Env overrides: `SORTIE_LOOP_REPO`, `SORTIE_LOOP_TOKEN`,
 
 ## Ad hoc: auto-merge on clean review
 
-To fully automate dev → review → merge on one repo (not a template
+To fully automate build → review → merge on one repo (not a template
 default), edit that repo's `.sortie/workflows/prompts/review.md` Step 4
 clean branch to chain the merge loop instead of stopping:
 
@@ -324,10 +339,10 @@ go build ./... && go vet ./...
 ## Customizing agents and workflows
 
 The shipped default is the `pi` agent. Every `WORKFLOW.*.md` also
-documents a commented-out `claude-code` alternative (dev/review-fix/
+documents a commented-out `claude-code` alternative (build/review-fix/
 merge on `sonnet`, plan/review on `opus`) — swap the `agent:` block
 for the commented one, keeping the same `max_turns` and timeouts
-(dev's dispatch rules must name `claude-code` too). The `model:` value
+(build's dispatch rules must name `claude-code` too). The `model:` value
 passes through to `claude --model` unvalidated, so only use aliases
 your installed CLI accepts. The pinned engine only knows `pi` and
 `claude-code` (plus a few others); other adapters need a newer or

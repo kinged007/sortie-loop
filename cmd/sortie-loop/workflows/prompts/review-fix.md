@@ -66,27 +66,27 @@ then fix them on the PR branch:
    ```
 
    Every section is required; write "None" only when true.
-5. Finish the labels yourself: drop the trigger and the claim, then set
-   the state. Chaining is off by default — a person applies trigger
-   labels — so finish on `agent:done`:
+5. Finish the labels yourself: drop the trigger, the claim, and any
+   `agent:done` left by an earlier pass, then hand the PR back to the
+   review loop so a fresh review runs against the fixed branch:
 
    ```
    gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT \
-     --remove-label "agent:build,in-progress" --add-label "agent:done"
+     --remove-label "agent:build,in-progress,agent:done" --add-label "agent:review"
    ```
 
-   To have the PR re-reviewed instead, add the review loop's trigger and
-   leave `agent:done` out:
-
-   ```
-   gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT \
-     --remove-label "agent:build,in-progress" --add-label "agent:review"
-   ```
+   `agent:done` keeps every loop away from the PR, so a trigger meant
+   for the next stage has to be in the same command as its removal.
 
 If you cannot complete the fixes (blocked, conflicting feedback), post
 that as the PR comment instead — what you fixed, what is blocking, what
-you need — then add `needs-human` alongside `agent:done` so a person
-finds it.
+you need — then keep your trigger and escalate: `needs-human` parks the
+PR, and the trigger is the record of what was dispatched.
+
+```
+gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT \
+  --remove-label "in-progress" --add-label "needs-human,agent:done"
+```
 
 {{ if .issue.url }}
 

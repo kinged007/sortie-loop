@@ -80,7 +80,7 @@ dispatch:
 
 {{/* Review loop: label a PR `agent:review` to get a three-pass review.
      The prompt lives in prompts/review.md (via dispatch default above).
-     By default the agent reviews and hands the decision back: it removes
-     agent:review and adds agent:done. To let it route instead, uncomment
-     the chaining rules in prompts/review.md Step 4. */}}
+     The agent routes the PR on the verdict it just posted: agent:review,
+     in-progress and agent:done off, agent:build on when there are
+     findings to fix, agent:done alone when the review is clean. */}}
 Review loop routing only — the prompt comes from the dispatch template.

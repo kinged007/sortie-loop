@@ -96,9 +96,10 @@ completion, stop them and verify that each one is gone.
 
    Every section is required. Write `pr_number`, `owner`, `repo`, and
    `branch` to `.sortie/scm.json` so the workflow runner can watch the PR.
-5. Do not apply `agent:review` to the PR yourself; the human triggers the
-   deep review when ready. To chain it instead, apply `agent:review` to the
-   PR in the same edit that finishes the run (see Finishing the run).
+5. Hand the PR to the review loop yourself: apply `agent:review` and
+   `--add-assignee @me` to the PR in the same edit that finishes the run
+   (see Finishing the run). The review loops only see PRs assigned to the
+   token owner.
 6. If the task is already resolved, post an issue comment saying so and
    stop.
 7. When done, post one detailed comment on the issue with `gh issue comment
@@ -140,21 +141,29 @@ verification and comment on every turn.
 
 ## Finishing the run
 
-You own the labels: remove your trigger and the claim, then mark the
-state. Chaining is off by default — a person applies trigger labels — so
-finish with `agent:done`. Add `needs-human` in the same command when a
-person has to look at this before anything else happens.
+You own the labels. If you opened a PR, hand it to the review loop and
+close out the issue in the same turn:
 
 ```
+# the PR: the next loop in is the review
+gh pr edit <pr> --repo $SORTIE_TRACKER_PROJECT \
+  --add-assignee @me --add-label "agent:review"
+
+# the issue: this run is over
 gh issue edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT \
   --remove-label "agent:build,in-progress" --add-label "agent:done"
 ```
 
-To send the PR you just opened straight into review, label the PR (not the
-issue) in the same step:
+`agent:done` keeps every loop away from the item, so a trigger meant for
+the next stage has to be in the same command as its removal.
+
+If a person has to look at this before anything else happens, keep your
+trigger: it is the record of what was dispatched, and `needs-human` is
+what parks the item.
 
 ```
-gh pr edit <pr> --repo $SORTIE_TRACKER_PROJECT --add-label "agent:review"
+gh issue edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT \
+  --remove-label "in-progress" --add-label "needs-human,agent:done"
 ```
 
 {{ if .issue.url }}

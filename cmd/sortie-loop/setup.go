@@ -62,8 +62,10 @@ func runSetup(dir string) {
 		}
 		fmt.Println("created", cfgPath)
 	}
-	syncWorkflows(abs, true)
-	fmt.Println("workflows installed in", filepath.Join(abs, ".sortie", "workflows"))
+	syncWorkflows(abs, askBeforeOverwrite)
+	fmt.Println("workflows ready in", filepath.Join(abs, ".sortie", "workflows"))
+	syncPMAgent(abs, askBeforeOverwrite)
+	fmt.Println("project manager prompt ready in", filepath.Join(abs, ".sortie", "pm-agent.md"))
 	ensureSortieLink()
 	repo := configRepo(abs)
 	ensureGitignore(abs)

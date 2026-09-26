@@ -94,7 +94,7 @@ gh issue edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT \
 ```
 
 To hand the issue straight to development when the plan is done, swap the
-added label for the dev loop's trigger:
+added label for the build loop's trigger:
 
 ```
 --add-label "agent:build"

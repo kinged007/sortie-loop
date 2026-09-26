@@ -140,34 +140,39 @@ branches, or push anything. Do not open issues or PRs.
 
 ## Step 4: Finish — set the label and release the claim
 
-You own the labels. Chaining is off by default, so a person decides what
-happens after a review: always drop your trigger and the claim, then mark
-the state. Add `needs-human` to escalate, when a person has to read something before anything else happens.
+You own the labels, and the review you just posted carries the outcome,
+so you route the PR yourself. Always drop your trigger and the claim; add
+the next loop's trigger when there is work left, `agent:done` when there
+is not.
+
+**Findings to fix** — `Request Changes`, `Approve with Conditions`, or
+any unresolved Critical/High finding. A fix agent applies them and sends
+the PR back here for another pass:
+
+```
+gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT \
+  --remove-label "agent:review,in-progress,agent:done" --add-label "agent:build"
+```
+
+**Clean** — `Approve` with no unresolved Critical or High finding. The
+review is finished; what happens next is a person's call:
 
 ```
 gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT \
   --remove-label "agent:review,in-progress" --add-label "agent:done"
 ```
 
-The posted review carries the outcome: an Approve needs no action from
-you, Critical or High findings are visible to whoever reads the PR next.
+`agent:done` keeps every loop away from the PR, so a trigger meant for
+the next stage has to be in the same command as its removal.
 
-### Chaining instead of stopping (opt-in)
-
-To let this loop route the PR itself, use the next loop's trigger as the
-`--add-label` value instead of `agent:done`:
-
-- `agent:build` — a fix agent applies your findings, then asks for another review. Use when the review is not clean.
+To escalate, keep your trigger, add `needs-human` and `agent:done`: the
+trigger is the record of what was dispatched, `needs-human` is what parks
+the PR until a person reads it.
 
 ```
 gh pr edit {{ .issue.identifier }} --repo $SORTIE_TRACKER_PROJECT \
-  --remove-label "agent:review,in-progress" --add-label "agent:build"
+  --remove-label "in-progress" --add-label "needs-human,agent:done"
 ```
-
-- `~~agent:merge` — merge the PR now. Use only when the review is clean.~~
-
-A chained label must land on the PR, not on an issue: the fix and merge
-loops watch PRs only.
 
 {{ if .issue.url }}
 
