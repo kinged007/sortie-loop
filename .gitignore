@@ -1,3 +1,5 @@
 # sortie-loop local state (added by sortie-loop setup)
 .sortie/
-sortie-loop
+# Anchored: a bare pattern would also match cmd/sortie-loop/ in any
+# subdirectory, which ignores the package source itself.
+/sortie-loop
