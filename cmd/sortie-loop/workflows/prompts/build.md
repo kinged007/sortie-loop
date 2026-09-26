@@ -32,6 +32,39 @@ completion, stop them and verify that each one is gone.
    and browser files and the temporary directory. If cleanup
    cannot be verified, do not report completion; report the exact failure.
 
+## Dev environment and verification
+
+Only needed when the change has a UI or a runtime to exercise.
+
+1. Start the stack with the repo's own dev command (README, `AGENTS.md`,
+   `Makefile`, or equivalent) — it usually installs dependencies, migrates,
+   and seeds on first run. The process lifecycle rules above apply to
+   whatever it spawns.
+2. Read the repo's docs on seeding dev content (README, `docs/`, seed
+   scripts, fixtures) to find the seeded accounts; they also show in the
+   dev startup output. Log in with a seeded account for visual or manual
+   verification. If the task needs a different user shape, seed one
+   following the repo's existing seed patterns or register through the UI —
+   never hardcode ad-hoc credentials in the codebase.
+3. Pick the tool by what the check needs:
+   - `obscura` for a single page load: read text/html/markdown/links, run
+     `--eval`, take a screenshot. Fast, no setup.
+   - Playwright for everything stateful: clicks, form submits, login,
+     multi-step navigation, session state, and any claim that a flow
+     worked.
+
+   `obscura` keeps no session between steps and cannot interact with
+   elements, so it cannot verify a flow. Never cite it as evidence for one.
+4. For a Playwright run: pin `playwright` in the devDependencies of the app
+   that serves the UI and run the script from that app's directory, keep
+   chromium in the shared per-user cache (`npx playwright install chromium`
+   once — never a global install), launch headless inside a `timeout` (MANDATORY!) and
+   close the browser in the same script, print the observable result
+   (`p.url()`, a fetched record, a visible error) instead of only
+   screenshotting, and keep artifacts in `/tmp`, removed at the end of the
+   run. Read `skill-search view browser-verification` for the full
+   procedure before the first Playwright check.
+
 ## Your task
 
 **{{ .issue.identifier }}**: {{ .issue.title }}
@@ -57,6 +90,25 @@ completion, stop them and verify that each one is gone.
 
 {{ end }}
 {{ end }}
+
+## Plan first
+
+If no plan was posted on the issue, write one before implementing and post
+it as an issue comment:
+
+- Goal (one line)
+- Findings (what the code does today)
+- Test strategy (TDD): which tests to write first and see failing before
+  any implementation, then the steps that make them pass, and the commands
+  that verify
+- Approach (steps, files to change)
+- Risks / open questions
+
+Keep it concise. A local, well-understood change needs no human review of
+the plan — implement it yourself in the same run. Escalate to
+`needs-human` only when the plan depends on a decision the repo cannot
+answer: a product choice, a cross-team API, or a change that spans
+services or rewrites a public contract.
 
 ## Rules
 
