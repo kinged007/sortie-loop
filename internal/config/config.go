@@ -51,8 +51,8 @@ type Label struct {
 // Three roles, one colour each: a yellow trigger starts a loop, in-progress
 // is the claim an agent holds while it works, agent:done is the state an
 // agent leaves behind when it finishes, and needs-human escalates to a
-// person. Every name is prefixed agent: except the two that describe the
-// item rather than the agent.
+// person. Every name is prefixed agent: except the four that describe the
+// item or the person's decision rather than the agent.
 var DefaultLabels = []Label{
 	{"agent:plan", "fbca04", "Trigger: write an implementation plan for this issue"},
 	{"agent:build", "fbca04", "Trigger: implement this issue, or apply review feedback on this PR"},
@@ -61,6 +61,12 @@ var DefaultLabels = []Label{
 	{"in-progress", "5319e7", "State: claimed by an agent"},
 	{"agent:done", "0e8a16", "State: agent finished"},
 	{"needs-human", "d73a4a", "Escalation: agent needs a person"},
+	{"united-into", "c5def5", "State: work folded into another issue's fix; that issue is the one to read"},
+	{"backlog", "ededed", "Deferred by a person; do not dispatch"},
+	{"P0", "d73a4a", "Priority: highest, dispatch before everything else"},
+	{"P1", "f9826c", "Priority: high"},
+	{"P2", "fbca04", "Priority: normal"},
+	{"P3", "ededed", "Priority: lowest"},
 }
 
 // Load reads .sortie/config.yaml under dir (repo root), applies environment
@@ -154,7 +160,7 @@ func Load(dir string) (*Config, error) {
 // by the wrong loop.
 var defaultFilters = map[string]string{
 	"plan":       "label:agent:plan,in-progress -label:agent:build -label:needs-human",
-	"dev":        "label:agent:build,in-progress -label:agent:plan -label:needs-human",
+	"build":      "label:agent:build,in-progress -label:agent:plan -label:needs-human",
 	"review":     "label:agent:review,in-progress -label:agent:build -label:agent:merge -label:needs-human",
 	"review-fix": "label:agent:build,in-progress -label:agent:review -label:agent:merge -label:needs-human",
 	"merge":      "label:agent:merge,in-progress -label:agent:build -label:agent:review -label:needs-human",

@@ -218,7 +218,7 @@ func TestSortieValidate(t *testing.T) {
 		t.Skip("no sortie binary available (set SORTIE_BIN, or build the fork to /tmp/gobin/sortie-fork)")
 	}
 	root := t.TempDir()
-	syncWorkflows(root, true)
+	syncWorkflows(root, keepEdits)
 	dir := filepath.Join(root, ".sortie", "workflows")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -229,13 +229,13 @@ func TestSortieValidate(t *testing.T) {
 		"SORTIE_TRACKER_API_KEY=test",
 		"SORTIE_LOOP_WORKSPACES="+filepath.Join(root, "ws"),
 	)
-	dev := ""
+	build := ""
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasPrefix(e.Name(), "WORKFLOW.") {
 			continue
 		}
-		if e.Name() == "WORKFLOW.dev.md" {
-			dev = e.Name()
+		if e.Name() == "WORKFLOW.build.md" {
+			build = e.Name()
 		}
 		cmd := exec.Command(bin, "validate", e.Name())
 		cmd.Dir = dir
@@ -244,11 +244,11 @@ func TestSortieValidate(t *testing.T) {
 			t.Errorf("%s: %v\n%s", e.Name(), err, out)
 		}
 	}
-	if dev == "" {
-		t.Fatal("WORKFLOW.dev.md not installed")
+	if build == "" {
+		t.Fatal("WORKFLOW.build.md not installed")
 	}
 	// The engine must also accept the filter sortie-loop injects at launch.
-	cmd := exec.Command(bin, "validate", dev)
+	cmd := exec.Command(bin, "validate", build)
 	cmd.Dir = dir
 	cmd.Env = append(env,
 		"SORTIE_TRACKER_QUERY_FILTER=label:agent:build,in-progress -label:agent:plan -label:needs-human assignee:@me",

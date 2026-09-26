@@ -37,7 +37,7 @@ workspace:
   root: $SORTIE_LOOP_WORKSPACES/plan
   retention_days: 30
 
-# ponytail: plan-gating is enforced by the dev loop's query_filter
+# ponytail: plan-gating is enforced by the build loop's query_filter
 # (`-label:agent:plan`), not here — dispatch.match has no negation.
 # The plan loop stays a separate file so it can carry its own model.
 

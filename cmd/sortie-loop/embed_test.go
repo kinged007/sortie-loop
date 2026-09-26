@@ -34,27 +34,100 @@ func TestSetupSeedsLabelsIntoFreshConfig(t *testing.T) {
 
 func TestSyncWorkflowsKeepsEditsFillsGaps(t *testing.T) {
 	root := t.TempDir()
-	syncWorkflows(root, true)
-	dev := filepath.Join(root, ".sortie", "workflows", "WORKFLOW.dev.md")
-	if _, err := os.Stat(dev); err != nil {
+	syncWorkflows(root, keepEdits)
+	build := filepath.Join(root, ".sortie", "workflows", "WORKFLOW.build.md")
+	if _, err := os.Stat(build); err != nil {
 		t.Fatalf("setup did not install workflows: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".sortie", "workflows", "prompts", "quick.md")); err != nil {
 		t.Fatalf("setup did not install prompts: %v", err)
 	}
-	f, _ := os.OpenFile(dev, os.O_APPEND|os.O_WRONLY, 0o644)
+	f, _ := os.OpenFile(build, os.O_APPEND|os.O_WRONLY, 0o644)
 	f.WriteString("\n# local tweak")
 	f.Close()
 	os.Remove(filepath.Join(root, ".sortie", "workflows", "prompts", "quick.md"))
-	if got := workflowPath(root, "WORKFLOW.dev.md"); got != dev {
-		t.Fatalf("workflowPath = %q, want %q", got, dev)
+	if got := workflowPath(root, "WORKFLOW.build.md"); got != build {
+		t.Fatalf("workflowPath = %q, want %q", got, build)
 	}
-	raw, _ := os.ReadFile(dev)
+	raw, _ := os.ReadFile(build)
 	if !strings.HasSuffix(string(raw), "\n# local tweak") {
 		t.Error("loop run overwrote local workflow edit")
 	}
 	if _, err := os.Stat(filepath.Join(root, ".sortie", "workflows", "prompts", "quick.md")); err != nil {
 		t.Error("loop run did not restore missing prompt file")
+	}
+}
+
+func TestSyncWorkflowsAsksBeforeOverwrite(t *testing.T) {
+	root := t.TempDir()
+	syncWorkflows(root, keepEdits)
+	build := filepath.Join(root, ".sortie", "workflows", "WORKFLOW.build.md")
+	const mine = "---\n# hand edited\n"
+	if err := os.WriteFile(build, []byte(mine), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// No answer on stdin: the edit survives setup.
+	withStdin(t, "", func() { syncWorkflows(root, askBeforeOverwrite) })
+	if got, _ := os.ReadFile(build); string(got) != mine {
+		t.Error("setup replaced a customized workflow without confirmation")
+	}
+
+	// An explicit no, likewise.
+	withStdin(t, "n\n", func() { syncWorkflows(root, askBeforeOverwrite) })
+	if got, _ := os.ReadFile(build); string(got) != mine {
+		t.Error("setup replaced a customized workflow after a no")
+	}
+
+	// An explicit yes takes the shipped copy.
+	withStdin(t, "y\n", func() { syncWorkflows(root, askBeforeOverwrite) })
+	got, _ := os.ReadFile(build)
+	if string(got) == mine {
+		t.Error("setup did not replace a customized workflow after a yes")
+	}
+	if !strings.Contains(string(got), "query_filter") {
+		t.Errorf("reinstalled file is not the shipped copy: %q", got)
+	}
+}
+
+// withStdin runs fn with os.Stdin replaced by a pipe carrying input, so
+// confirmOverwrite is exercised on its real code path. Passing "" leaves
+// the write end closed, which is what a non-interactive run sees.
+func withStdin(t *testing.T, input string, fn func()) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if input != "" {
+		if _, err := w.WriteString(input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.Close()
+	saved, savedReader := os.Stdin, promptIn
+	os.Stdin, promptIn = r, nil
+	defer func() { os.Stdin, promptIn = saved, savedReader }()
+	fn()
+}
+
+func TestSyncPMAgentInstallsPrompt(t *testing.T) {
+	root := t.TempDir()
+	syncPMAgent(root, keepEdits)
+	dest := filepath.Join(root, ".sortie", "pm-agent.md")
+	raw, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("setup did not install the pm prompt: %v", err)
+	}
+	if !strings.Contains(string(raw), "united-into") {
+		t.Error("installed pm prompt lacks the label contract it routes on")
+	}
+	// A hand-edited prompt survives setup without confirmation.
+	const mine = "# mine\n"
+	os.WriteFile(dest, []byte(mine), 0o644)
+	withStdin(t, "", func() { syncPMAgent(root, askBeforeOverwrite) })
+	if got, _ := os.ReadFile(dest); string(got) != mine {
+		t.Error("setup replaced a customized pm prompt without confirmation")
 	}
 }
 
@@ -116,7 +189,7 @@ func TestLinkFileReplacesStaleDest(t *testing.T) {
 
 func TestDiscoverWorkflowsPicksUpNewFile(t *testing.T) {
 	root := t.TempDir()
-	syncWorkflows(root, true)
+	syncWorkflows(root, keepEdits)
 	// A hand-added workflow (no rebuild, no code change) is discovered.
 	os.WriteFile(filepath.Join(root, ".sortie", "workflows", "WORKFLOW.triage.md"), []byte("---\n"), 0o644)
 	// Non-workflow files are ignored.
@@ -126,7 +199,7 @@ func TestDiscoverWorkflowsPicksUpNewFile(t *testing.T) {
 	for _, l := range got {
 		names = append(names, l.name)
 	}
-	want := []string{"dev", "merge", "plan", "review-fix", "review", "triage"}
+	want := []string{"build", "merge", "plan", "review-fix", "review", "triage"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Errorf("discoverWorkflows = %v, want %v", names, want)
 	}
