@@ -33,17 +33,50 @@ The four `blocker` labels are the only things an agent never touches.
 An agent picks up an item only when all three hold:
 
 1. it is assigned to the token owner (`@me`), **and**
-2. it carries a dispatch trigger (`agent:plan`, `agent:build`, `agent:review`,
-   `agent:merge`), **and**
+2. it carries **exactly one** dispatch trigger (`agent:plan`, `agent:build`,
+   `agent:review`, `agent:merge`), **and**
 3. it carries no label that holds it back — no blocker, and no `agent:done`.
 
 `agent:done` + `agent:build` starts nothing. The item sits there, no agent runs,
 and nothing reports why. So every dispatch removes `agent:done` in the same call
 that adds the trigger.
 
+Two triggers is the same dead end, and it is easy to cause by accident. Each loop
+excludes the other loops' triggers, so an item carrying two of them is excluded
+from every loop that could take it:
+
+| Loop       | Excludes                                       |
+| ---------- | ---------------------------------------------- |
+| `build`    | `agent:plan`                                   |
+| `plan`     | `agent:build`                                  |
+| `review`   | `agent:build`, `agent:merge`                   |
+| review-fix | `agent:review`, `agent:merge`                  |
+| `merge`    | `agent:build`, `agent:review`                  |
+
+A PR with `agent:build` and `agent:review` matches nothing: `review` excludes it
+for `agent:build`, review-fix excludes it for `agent:review`, and `merge` wants a
+label it does not have.
+
+**Read the labels before you dispatch, and leave exactly one trigger.** An item
+that already carries two is not a dispatch candidate — it is a repair job, and
+you repair it in the same run: remove all but the one that should win, and make
+your comment say what the surviving trigger is for.
+
+Keep the earliest stage that is not finished yet, in `agent:plan` → `agent:build`
+→ `agent:review` → `agent:merge` order, because each later stage presumes the
+earlier ones are done:
+
+- `agent:build` + `agent:review` → keep `agent:build`. The review findings are
+  not applied yet, so there is nothing to review.
+- `agent:review` + `agent:merge` → keep `agent:review`. The merge agent would
+  merge what nobody has read.
+- `agent:merge` + anything else → keep `agent:merge` only if the review it points
+  at is on record; otherwise drop `agent:merge` and keep the earlier trigger.
+
 ```sh
 gh issue edit "$N" --repo "$REPO" --add-assignee @me \
-  --remove-label "agent:done" --add-label "agent:build"
+  --remove-label "agent:done" --remove-label "agent:review" \
+  --add-label "agent:build"
 ```
 
 Every item you dispatch must be assigned to you too, or the trigger never fires.
@@ -94,11 +127,11 @@ item parks silently between runs — an `agent:done` that never gets picked up
 again is a decision you did not make, and the work is lost with it.
 
 Before triaging the backlog, work every `agent:done` item. Read the last agent
-comment and the last comment you left, then land it on exactly one of:
-`agent:plan`, `agent:build`, `agent:review`, `agent:merge`, `needs-human`,
-`united-into`, or closed. "No news" is not an outcome. If an item genuinely needs
-nothing, the blocker that stops it coming back is a comment saying why, plus the
-label that matches.
+comment, the last comment you left, and **every label on the item** — then land it
+on exactly one of: `agent:plan`, `agent:build`, `agent:review`, `agent:merge`,
+`needs-human`, `united-into`, or closed. "No news" is not an outcome. If an item
+genuinely needs nothing, the blocker that stops it coming back is a comment saying
+why, plus the label that matches.
 
 ### Items that have sat a long time
 
@@ -116,6 +149,8 @@ it, then pick one:
   the unfinished step, or `needs-human` if you cannot tell what state the branch
   is in.
 - the work is finished and the PR merged → do the PR path: close the issue.
+- the item carries two triggers → nobody can take it. Pick the one that should
+  win per *When an item is picked up*, remove the other, and dispatch.
 
 ### A decision you would make yourself
 
