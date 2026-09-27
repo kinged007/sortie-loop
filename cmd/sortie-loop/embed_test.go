@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -205,5 +207,213 @@ func TestDiscoverWorkflowsPicksUpNewFile(t *testing.T) {
 	}
 	if got[len(got)-1].file != "WORKFLOW.triage.md" {
 		t.Errorf("triage file = %q", got[len(got)-1].file)
+	}
+}
+
+func TestSelectLoops(t *testing.T) {
+	all := []loopDef{{"build", "WORKFLOW.build.md"}, {"merge", "WORKFLOW.merge.md"}, {"plan", "WORKFLOW.plan.md"}}
+	names := func(ls []loopDef) string {
+		var n []string
+		for _, l := range ls {
+			n = append(n, l.name)
+		}
+		return strings.Join(n, ",")
+	}
+	// Unset/blank keeps every loop, in discovery order: a plain run is
+	// unaffected by the selector.
+	for _, only := range []string{"", "   "} {
+		got, err := selectLoops(all, only)
+		if err != nil || names(got) != "build,merge,plan" {
+			t.Errorf("selectLoops(%q) = %v, %v; want all", only, names(got), err)
+		}
+	}
+	// A subset keeps discovery order, not the order requested, and
+	// carries the file through so the caller runs the right one.
+	got, err := selectLoops(all, " merge , build ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names(got) != "build,merge" || got[1].file != "WORKFLOW.merge.md" {
+		t.Errorf("selectLoops = %v %q, want build,merge with merge's file", names(got), got[1].file)
+	}
+	// An unknown name is fatal even alongside known ones: starting the
+	// rest would leave the asked-for loop's work unwatched.
+	for _, only := range []string{"build,triage", "triage", "plan,build,review", ",", " , "} {
+		if _, err := selectLoops(all, only); err == nil {
+			t.Errorf("selectLoops(%q) = nil error, want an error", only)
+		}
+	}
+	// Discovery order is preserved, not the requested order.
+	if got, err := selectLoops(all, "plan,build"); err != nil || names(got) != "build,plan" {
+		t.Errorf("selectLoops = %v, %v; want build,plan in discovery order", names(got), err)
+	}
+}
+
+// TestSelectLoopsAgainstInstalledWorkflows pins the selector to the
+// workflows setup actually installs, so a renamed or dropped loop is
+// caught here rather than by a supervisor that names it.
+func TestSelectLoopsAgainstInstalledWorkflows(t *testing.T) {
+	root := t.TempDir()
+	syncWorkflows(root, keepEdits)
+	all := discoverWorkflows(root)
+	if got, err := selectLoops(all, ""); err != nil || len(got) != len(all) {
+		t.Fatalf("selectLoops(\"\") = %d loops, %v; want %d", len(got), err, len(all))
+	}
+	var want []string
+	for _, l := range all {
+		want = append(want, l.name)
+	}
+	got, err := selectLoops(all, strings.Join(want, ","))
+	if err != nil {
+		t.Fatalf("selectLoops(all names) = %v; every installed loop must be selectable", err)
+	}
+	if len(got) != len(all) {
+		t.Errorf("selectLoops(all names) = %d loops, want %d", len(got), len(all))
+	}
+}
+
+// resolveSortieBin finds the engine on PATH, which is the same
+// ~/.local/bin directory sortie-loop itself lives in. ensureSortieLink
+// then computed dest == bin and rewrote the engine as a symlink to
+// itself, leaving a 29MB binary that can never run. The engine must
+// survive being next to the loop binary.
+func TestEnsureSortieLinkDoesNotDestroyTheEngineBesideIt(t *testing.T) {
+	dir := t.TempDir()
+	engine := filepath.Join(dir, "sortie")
+	body := []byte("#!/bin/sh\necho engine\n")
+	if err := os.WriteFile(engine, body, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A real engine binary at the exact path ensureSortieLink would link.
+	if err := os.WriteFile(filepath.Join(dir, "sortie"), body, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SORTIE_BIN", engine)
+	t.Setenv("PATH", dir)
+
+	ensureSortieLinkIn(dir)
+	got, err := os.ReadFile(filepath.Join(dir, "sortie"))
+	if err != nil {
+		t.Fatalf("engine is unreadable: %v", err)
+	}
+	if !bytes.Equal(got, body) {
+		t.Errorf("engine at %s was replaced: %q", dir, got)
+	}
+	info, err := os.Lstat(filepath.Join(dir, "sortie"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Error("engine became a symlink to itself")
+	}
+}
+
+// A genuine second location still gets the convenience link, and an
+// existing correct link is left alone rather than recreated.
+func TestEnsureSortieLinkLinksADistinctEngine(t *testing.T) {
+	dir := t.TempDir()
+	loops := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(loops, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	engine := filepath.Join(dir, "elsewhere", "sortie")
+	if err := os.MkdirAll(filepath.Dir(engine), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(engine, []byte("engine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SORTIE_BIN", engine)
+
+	ensureSortieLinkIn(loops)
+	link := filepath.Join(loops, "sortie")
+	cur, err := os.Readlink(link)
+	if err != nil {
+		t.Fatalf("no link created at %s: %v", link, err)
+	}
+	if cur != engine {
+		t.Errorf("link = %q, want %q", cur, engine)
+	}
+	// Idempotent: a second call must not fail or change the link.
+	ensureSortieLinkIn(loops)
+	again, err := os.Readlink(link)
+	if err != nil || again != engine {
+		t.Errorf("second call changed the link: %q %v", again, err)
+	}
+}
+
+func TestSamePath(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a")
+	if err := os.WriteFile(a, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(a, link); err != nil {
+		t.Fatal(err)
+	}
+	if !samePath(a, link) {
+		t.Error("a and a symlink to it are the same file")
+	}
+	if !samePath(a, a) {
+		t.Error("a path is the same as itself")
+	}
+	if samePath(a, filepath.Join(dir, "missing")) {
+		t.Error("a missing path is the same as a")
+	}
+}
+
+// The shared registry is keyed by repo identity, and a supervisor
+// filters and groups it by owner/name. A state directory is not a git
+// checkout, so the git remote lookup fails and the old fallback kept
+// only filepath.Base: the registry said "myxon-beta" where every caller
+// keys on "kinged007/myxon-beta", and the match silently found nothing.
+// The repo: written into .sortie/config.yaml is authoritative.
+func TestRepoNameUsesTheConfiguredSlugForANonCheckout(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "repos", "kinged007", "myxon-beta")
+	if err := os.MkdirAll(filepath.Join(root, ".sortie"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "repo: kinged007/myxon-beta\ntoken: \"\"\nassignee: \"@me\"\n"
+	if err := os.WriteFile(filepath.Join(root, ".sortie", "config.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// No git remote here, which is the whole point.
+	if got := guessRepo(root); got != "" {
+		t.Fatalf("guessRepo = %q, want empty for a non-checkout", got)
+	}
+	if got := repoName(root); got != "kinged007/myxon-beta" {
+		t.Errorf("repoName = %q, want the configured slug", got)
+	}
+}
+
+// A real checkout still resolves through the git remote.
+func TestRepoNameStillUsesTheGitRemote(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".sortie"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"remote", "add", "origin", "https://github.com/kinged007/from-remote.git"},
+	} {
+		cmd := exec.Command("git", append([]string{"-C", root}, c...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("git %v: %v %s", c, err, out)
+		}
+	}
+	if got := repoName(root); got != "kinged007/from-remote" {
+		t.Errorf("repoName = %q, want the slug from the git remote", got)
+	}
+}
+
+// With nothing to go on, the basename is still the best answer.
+func TestRepoNameFallsBackToTheBasename(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "just-a-dir")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := repoName(root); got != "just-a-dir" {
+		t.Errorf("repoName = %q, want the basename", got)
 	}
 }
