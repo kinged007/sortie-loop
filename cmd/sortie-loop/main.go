@@ -37,6 +37,7 @@ func main() {
 		fmt.Println("Usage: sortie-loop [--no-server] [--no-dashboard] [--dashboard-port=N] [--unite] [repo-root]")
 		fmt.Println("         sortie-loop setup [repo-root] [--repo=owner/name]")
 		fmt.Println("  Run every WORKFLOW.*.md loop in .sortie/workflows/ against the repo at repo-root (default: cwd).")
+		fmt.Println("  SORTIE_LOOP_ONLY=plan,build  start only these loops (default: all of them)")
 		fmt.Println("  Settings live in <root>/.sortie/config.yaml; repo id defaults to the git remote.")
 		fmt.Println("  Settings live in <root>/.sortie/config.yaml; repo id defaults to the git remote.")
 		os.Exit(0)
@@ -90,7 +91,13 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	loops := discoverWorkflows(abs)
+	// SORTIE_LOOP_ONLY selects a subset of the installed loops, for a
+	// supervisor driving several repos. Unset starts every loop, so a
+	// plain sortie-loop run is unchanged.
+	loops, err := selectLoops(discoverWorkflows(abs), os.Getenv("SORTIE_LOOP_ONLY"))
+	if err != nil {
+		fatal(err)
+	}
 	if len(loops) == 0 {
 		fatal(fmt.Errorf("no WORKFLOW.*.md files in %s", filepath.Join(abs, ".sortie", "workflows")))
 	}
