@@ -53,16 +53,29 @@ func writeEnvFile(dir string, cfg *config.Config) (string, error) {
 // the loop binary so bare `sortie` commands (e.g. `sortie validate`)
 // work. A missing engine is a warning — config and labels don't need it.
 func ensureSortieLink() {
+	self, err := os.Executable()
+	if err != nil {
+		return
+	}
+	ensureSortieLinkIn(filepath.Dir(self))
+}
+
+// ensureSortieLinkIn is ensureSortieLink for a chosen directory, so the
+// self-link guard is testable without relocating the running binary.
+func ensureSortieLinkIn(dir string) {
 	bin, err := resolveSortieBin()
 	if err != nil {
 		fmt.Println("warning: sortie engine not found; rerun install.sh or set SORTIE_BIN")
 		return
 	}
-	self, err := os.Executable()
-	if err != nil {
+	dest := filepath.Join(dir, "sortie")
+	if samePath(dest, bin) {
+		// The engine resolveSortieBin found is already this path, so
+		// linking would point the name at itself and destroy the binary.
+		// Reached whenever both are installed in one directory, which is
+		// the normal case.
 		return
 	}
-	dest := filepath.Join(filepath.Dir(self), "sortie")
 	if cur, err := os.Readlink(dest); err == nil && cur == bin {
 		return
 	}
@@ -71,6 +84,23 @@ func ensureSortieLink() {
 		return
 	}
 	fmt.Println("linked", dest, "->", bin)
+}
+
+// samePath reports whether two paths name the same file, following
+// symlinks. A path that cannot be stat'd is not the same as anything.
+func samePath(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	sa, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	sb, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(sa, sb)
 }
 
 // linkFile replaces dest with a symlink to target, creating the dir.
