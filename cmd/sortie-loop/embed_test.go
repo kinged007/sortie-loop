@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -359,5 +360,60 @@ func TestSamePath(t *testing.T) {
 	}
 	if samePath(a, filepath.Join(dir, "missing")) {
 		t.Error("a missing path is the same as a")
+	}
+}
+
+// The shared registry is keyed by repo identity, and a supervisor
+// filters and groups it by owner/name. A state directory is not a git
+// checkout, so the git remote lookup fails and the old fallback kept
+// only filepath.Base: the registry said "myxon-beta" where every caller
+// keys on "kinged007/myxon-beta", and the match silently found nothing.
+// The repo: written into .sortie/config.yaml is authoritative.
+func TestRepoNameUsesTheConfiguredSlugForANonCheckout(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "repos", "kinged007", "myxon-beta")
+	if err := os.MkdirAll(filepath.Join(root, ".sortie"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "repo: kinged007/myxon-beta\ntoken: \"\"\nassignee: \"@me\"\n"
+	if err := os.WriteFile(filepath.Join(root, ".sortie", "config.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// No git remote here, which is the whole point.
+	if got := guessRepo(root); got != "" {
+		t.Fatalf("guessRepo = %q, want empty for a non-checkout", got)
+	}
+	if got := repoName(root); got != "kinged007/myxon-beta" {
+		t.Errorf("repoName = %q, want the configured slug", got)
+	}
+}
+
+// A real checkout still resolves through the git remote.
+func TestRepoNameStillUsesTheGitRemote(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".sortie"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"remote", "add", "origin", "https://github.com/kinged007/from-remote.git"},
+	} {
+		cmd := exec.Command("git", append([]string{"-C", root}, c...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("git %v: %v %s", c, err, out)
+		}
+	}
+	if got := repoName(root); got != "kinged007/from-remote" {
+		t.Errorf("repoName = %q, want the slug from the git remote", got)
+	}
+}
+
+// With nothing to go on, the basename is still the best answer.
+func TestRepoNameFallsBackToTheBasename(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "just-a-dir")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := repoName(root); got != "just-a-dir" {
+		t.Errorf("repoName = %q, want the basename", got)
 	}
 }
