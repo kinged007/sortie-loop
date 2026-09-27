@@ -64,8 +64,17 @@ func registryPath() (string, error) {
 
 // repoName returns a short display name for a repo root: owner/name when
 // the git remote parses, else the directory base.
+// repoName is the identity recorded in the shared registry, so it has
+// to agree with the slug a caller asked for. It resolves through
+// configRepo, which prefers the repo: already written in
+// .sortie/config.yaml, then the git remote. Reading the git remote
+// directly is wrong for a state directory that is not a checkout: it is
+// not a git repository, so the remote lookup failed and the fallback
+// kept only filepath.Base, recording "myxon-beta" where every caller
+// keys on "kinged007/myxon-beta". Anything grouping or filtering the
+// dashboard by owner/name then silently matched nothing.
 func repoName(root string) string {
-	if slug := guessRepo(root); strings.Contains(slug, "/") {
+	if slug := configRepo(root); strings.Contains(slug, "/") {
 		return slug
 	}
 	return filepath.Base(root)
