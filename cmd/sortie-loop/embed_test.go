@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -416,4 +417,90 @@ func TestRepoNameFallsBackToTheBasename(t *testing.T) {
 	if got := repoName(root); got != "just-a-dir" {
 		t.Errorf("repoName = %q, want the basename", got)
 	}
+}
+
+// install.sh honours --prefix, so the engine lands in <prefix>/share.
+// Looking only under ~/.local made a complete custom-prefix install
+// report "sortie binary not found" and left ensureSortieLink unable to
+// create the sortie symlink.
+func TestEnsureSortieBinFindsACustomPrefix(t *testing.T) {
+	dir := t.TempDir()
+	engine := filepath.Join(dir, "sortie-"+sortieVersion)
+	if err := os.WriteFile(engine, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ensureSortieBinIn([]string{filepath.Join(dir, "absent"), dir})
+	if err != nil {
+		t.Fatalf("ensureSortieBinIn: %v", err)
+	}
+	if got != engine {
+		t.Errorf("got %q, want %q", got, engine)
+	}
+	// The error has to name what was searched, or the operator cannot tell
+	// a missing engine from a wrongly guessed prefix.
+	empty := t.TempDir()
+	if _, err := ensureSortieBinIn([]string{empty}); err == nil {
+		t.Error("expected an error when the directory is empty")
+	} else if !strings.Contains(err.Error(), empty) {
+		t.Errorf("error does not name the directory searched: %v", err)
+	}
+}
+
+// A share directory derived from the running binary: <prefix>/bin/sortie-loop
+// must resolve to <prefix>/share/sortie-loop.
+func TestShareDirsFollowThePrefixOfTheRunningBinary(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	abs, err := filepath.Abs(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := filepath.Dir(filepath.Dir(abs))
+	want := filepath.Join(prefix, "share", "sortie-loop")
+	if !slices.Contains(sortieShareDirs(), want) {
+		t.Errorf("sortieShareDirs() = %v, want it to include %q", sortieShareDirs(), want)
+	}
+}
+
+// Two engines on one machine is common enough during development, and the
+// prefix is not self-consistent if a PATH hit wins: bin/sortie ends up
+// pointing at a binary the prefix never installed.
+func TestResolveSortieBinPrefersTheInstalledEngineOverPATH(t *testing.T) {
+	prefix := t.TempDir()
+	share := filepath.Join(prefix, "share", "sortie-loop")
+	if err := os.MkdirAll(share, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	installed := filepath.Join(share, "sortie-"+sortieVersion)
+	if err := os.WriteFile(installed, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A different engine, and a bin/sortie link to it, as an earlier
+	// lookup would have left behind.
+	other := t.TempDir()
+	pathHit := filepath.Join(other, "sortie")
+	if err := os.WriteFile(pathHit, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SORTIE_BIN", "")
+	t.Setenv("PATH", other)
+	// The precedence that matters: with a different engine on PATH, the one
+	// this loop was installed with has to win.
+	t.Setenv("SORTIE_BIN", "")
+	if got, err := resolveSortieBinIn([]string{share}); err != nil || got != installed {
+		t.Errorf("resolveSortieBinIn = %q, %v; want the installed engine %q", got, err, installed)
+	}
+	// A symlink is not an engine: following it would resolve back to the
+	// PATH hit that created it, which is the whole failure this guards.
+	link := filepath.Join(share, "sortie-"+sortieVersion+".link")
+	if err := os.Symlink(pathHit, link); err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(installed)
+	if got := installedSortieBinIn([]string{share}); got != "" {
+		t.Errorf("installedSortieBin = %q, want \"\" when only a symlink is present", got)
+	}
+	_ = pathHit
 }
