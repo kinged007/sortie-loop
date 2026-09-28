@@ -5,15 +5,33 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/kinged007/sortie-loop/internal/config"
 )
 
-// resolveSortieBin finds the sortie binary: SORTIE_BIN env, beside the
-// loop binary, on PATH, else the install.sh symlink under PREFIX.
+// resolveSortieBin finds the sortie binary: SORTIE_BIN env, then the copy
+// this loop was installed with, then beside it, then on PATH, then the
+// install.sh share directory.
+//
+// The installed copy is checked before PATH on purpose. A PATH hit wins
+// only by being the first thing a human typed, and a machine with two
+// engines on it would otherwise run the other one. Preferring the
+// version-pinned file is what makes --prefix self-consistent, and
+// SORTIE_BIN remains the documented way to override.
 func resolveSortieBin() (string, error) {
+	return resolveSortieBinIn(sortieShareDirs())
+}
+
+// resolveSortieBinIn is resolveSortieBin over an explicit share-directory
+// list, so the precedence is testable without relocating the binary.
+func resolveSortieBinIn(dirs []string) (string, error) {
 	if v := os.Getenv("SORTIE_BIN"); v != "" {
 		return v, nil
+	}
+	if p := installedSortieBinIn(dirs); p != "" {
+		return p, nil
 	}
 	if self, err := os.Executable(); err == nil {
 		if p := filepath.Join(filepath.Dir(self), "sortie"); p != self {
@@ -25,7 +43,28 @@ func resolveSortieBin() (string, error) {
 	if p, err := exec.LookPath("sortie"); err == nil {
 		return p, nil
 	}
-	return ensureSortieBin()
+	return ensureSortieBinIn(dirs)
+}
+
+// installedSortieBin is the version-pinned engine in a share directory,
+// or "" when there is none. It skips symlinks: the bin/sortie link is
+// itself built from this lookup, so following it here would resolve back
+// to whatever a PATH hit pointed at.
+func installedSortieBin() string {
+	return installedSortieBinIn(sortieShareDirs())
+}
+
+// installedSortieBinIn is installedSortieBin over an explicit candidate
+// list, so the search order is testable without relocating the binary.
+func installedSortieBinIn(dirs []string) string {
+	for _, dir := range dirs {
+		p := filepath.Join(dir, "sortie-"+sortieVersion)
+		st, err := os.Lstat(p)
+		if err == nil && st.Mode().IsRegular() {
+			return p
+		}
+	}
+	return ""
 }
 
 // writeEnvFile writes the resolved settings to .sortie/.env.loop so the
@@ -112,12 +151,54 @@ func linkFile(dest, target string) error {
 	return os.Symlink(target, dest)
 }
 
-func ensureSortieBin() (string, error) {
-	dest := filepath.Join(homeDir(), ".local", "share", "sortie-loop", "sortie-"+sortieVersion)
-	if _, err := os.Stat(dest); err == nil {
-		return dest, nil
+// sortieShareDirs are the directories the installer may have put the
+// version-named engine in.
+//
+// install.sh honours --prefix and writes the engine to
+// <prefix>/share/sortie-loop, so a custom prefix is where the engine
+// actually is. Looking only at ~/.local meant resolveSortieBin failed
+// for every non-default prefix, which left ensureSortieLink unable to
+// create the sortie symlink and reported "engine not found" on a
+// perfectly complete installation. Deriving the directory from the
+// running binary makes --prefix work, with the home default kept for an
+// install whose binaries moved later.
+func sortieShareDirs() []string {
+	var dirs []string
+	add := func(dir string) {
+		if dir != "" && !slices.Contains(dirs, dir) {
+			dirs = append(dirs, dir)
+		}
 	}
-	return "", fmt.Errorf("sortie binary not found (looked for SORTIE_BIN, ./sortie, PATH, %s); download sortie "+sortieVersion+" from https://github.com/kinged007/sortie/releases and set SORTIE_BIN, or rerun install.sh", dest)
+	if self, err := os.Executable(); err == nil {
+		abs, err := filepath.Abs(self)
+		if err == nil {
+			// <prefix>/bin/sortie-loop -> <prefix>/share/sortie-loop
+			add(filepath.Join(filepath.Dir(filepath.Dir(abs)), "share", "sortie-loop"))
+		}
+	}
+	if home := homeDir(); home != "" {
+		add(filepath.Join(home, ".local", "share", "sortie-loop"))
+	}
+	return dirs
+}
+
+func ensureSortieBin() (string, error) {
+	return ensureSortieBinIn(sortieShareDirs())
+}
+
+// ensureSortieBinIn is ensureSortieBin over an explicit candidate list, so
+// the search order is testable without relocating the running binary.
+func ensureSortieBinIn(dirs []string) (string, error) {
+	for _, dir := range dirs {
+		dest := filepath.Join(dir, "sortie-"+sortieVersion)
+		if _, err := os.Stat(dest); err == nil {
+			return dest, nil
+		}
+	}
+	if len(dirs) == 0 {
+		return "", fmt.Errorf("sortie binary not found (looked for SORTIE_BIN, ./sortie, PATH); download sortie " + sortieVersion + " from https://github.com/kinged007/sortie/releases and set SORTIE_BIN, or rerun install.sh")
+	}
+	return "", fmt.Errorf("sortie binary not found (looked for SORTIE_BIN, ./sortie, PATH, and %s); download sortie "+sortieVersion+" from https://github.com/kinged007/sortie/releases and set SORTIE_BIN, or rerun install.sh", strings.Join(dirs, ", ")+"/sortie-"+sortieVersion)
 }
 
 func homeDir() string {

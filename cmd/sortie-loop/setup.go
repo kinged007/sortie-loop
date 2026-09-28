@@ -83,7 +83,11 @@ func runSetup(dir string) {
 			edit := exec.Command("gh", "label", "edit", l.Name, "--repo", repo,
 				"--color", l.Color, "--description", l.Description)
 			if out, err := edit.CombinedOutput(); err != nil {
-				fatal(fmt.Errorf("label %s: %s: %w", l.Name, string(out), err))
+				// TrimSpace: gh's output ends in a newline, and
+				// interpolating it raw splits one error across two
+				// lines, leaving the last line a bare fragment that
+				// says nothing on its own.
+				fatal(fmt.Errorf("label %s: %s: %w", l.Name, strings.TrimSpace(string(out)), err))
 			}
 		}
 	}
