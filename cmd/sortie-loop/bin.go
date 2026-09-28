@@ -11,11 +11,27 @@ import (
 	"github.com/kinged007/sortie-loop/internal/config"
 )
 
-// resolveSortieBin finds the sortie binary: SORTIE_BIN env, beside the
-// loop binary, on PATH, else the install.sh symlink under PREFIX.
+// resolveSortieBin finds the sortie binary: SORTIE_BIN env, then the copy
+// this loop was installed with, then beside it, then on PATH, then the
+// install.sh share directory.
+//
+// The installed copy is checked before PATH on purpose. A PATH hit wins
+// only by being the first thing a human typed, and a machine with two
+// engines on it would otherwise run the other one. Preferring the
+// version-pinned file is what makes --prefix self-consistent, and
+// SORTIE_BIN remains the documented way to override.
 func resolveSortieBin() (string, error) {
+	return resolveSortieBinIn(sortieShareDirs())
+}
+
+// resolveSortieBinIn is resolveSortieBin over an explicit share-directory
+// list, so the precedence is testable without relocating the binary.
+func resolveSortieBinIn(dirs []string) (string, error) {
 	if v := os.Getenv("SORTIE_BIN"); v != "" {
 		return v, nil
+	}
+	if p := installedSortieBinIn(dirs); p != "" {
+		return p, nil
 	}
 	if self, err := os.Executable(); err == nil {
 		if p := filepath.Join(filepath.Dir(self), "sortie"); p != self {
@@ -27,7 +43,28 @@ func resolveSortieBin() (string, error) {
 	if p, err := exec.LookPath("sortie"); err == nil {
 		return p, nil
 	}
-	return ensureSortieBin()
+	return ensureSortieBinIn(dirs)
+}
+
+// installedSortieBin is the version-pinned engine in a share directory,
+// or "" when there is none. It skips symlinks: the bin/sortie link is
+// itself built from this lookup, so following it here would resolve back
+// to whatever a PATH hit pointed at.
+func installedSortieBin() string {
+	return installedSortieBinIn(sortieShareDirs())
+}
+
+// installedSortieBinIn is installedSortieBin over an explicit candidate
+// list, so the search order is testable without relocating the binary.
+func installedSortieBinIn(dirs []string) string {
+	for _, dir := range dirs {
+		p := filepath.Join(dir, "sortie-"+sortieVersion)
+		st, err := os.Lstat(p)
+		if err == nil && st.Mode().IsRegular() {
+			return p
+		}
+	}
+	return ""
 }
 
 // writeEnvFile writes the resolved settings to .sortie/.env.loop so the
