@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -415,5 +416,50 @@ func TestRepoNameFallsBackToTheBasename(t *testing.T) {
 	}
 	if got := repoName(root); got != "just-a-dir" {
 		t.Errorf("repoName = %q, want the basename", got)
+	}
+}
+
+// install.sh honours --prefix, so the engine lands in <prefix>/share.
+// Looking only under ~/.local made a complete custom-prefix install
+// report "sortie binary not found" and left ensureSortieLink unable to
+// create the sortie symlink.
+func TestEnsureSortieBinFindsACustomPrefix(t *testing.T) {
+	dir := t.TempDir()
+	engine := filepath.Join(dir, "sortie-"+sortieVersion)
+	if err := os.WriteFile(engine, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ensureSortieBinIn([]string{filepath.Join(dir, "absent"), dir})
+	if err != nil {
+		t.Fatalf("ensureSortieBinIn: %v", err)
+	}
+	if got != engine {
+		t.Errorf("got %q, want %q", got, engine)
+	}
+	// The error has to name what was searched, or the operator cannot tell
+	// a missing engine from a wrongly guessed prefix.
+	empty := t.TempDir()
+	if _, err := ensureSortieBinIn([]string{empty}); err == nil {
+		t.Error("expected an error when the directory is empty")
+	} else if !strings.Contains(err.Error(), empty) {
+		t.Errorf("error does not name the directory searched: %v", err)
+	}
+}
+
+// A share directory derived from the running binary: <prefix>/bin/sortie-loop
+// must resolve to <prefix>/share/sortie-loop.
+func TestShareDirsFollowThePrefixOfTheRunningBinary(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	abs, err := filepath.Abs(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := filepath.Dir(filepath.Dir(abs))
+	want := filepath.Join(prefix, "share", "sortie-loop")
+	if !slices.Contains(sortieShareDirs(), want) {
+		t.Errorf("sortieShareDirs() = %v, want it to include %q", sortieShareDirs(), want)
 	}
 }
