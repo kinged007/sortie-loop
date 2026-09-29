@@ -270,24 +270,86 @@ func TestLinkEngineAtLeavesUserSymlink(t *testing.T) {
 	}
 }
 
-// The engine must be the archive's top-level `sortie`. An entry that only
-// shares the basename is not it, so a tampered archive cannot smuggle a
-// binary in under a name the real release never contains.
-func TestCopyEngineEntryRejectsNestedPath(t *testing.T) {
-	// The hostile entry comes first: with a basename test it would win.
+// The engine must be the archive's `sortie`, at the root or inside a
+// single wrapper directory. A tampered archive must not reach it through a
+// traversal or a nested path.
+func TestEngineEntry(t *testing.T) {
+	for _, ok := range []string{
+		"sortie",             // flat archive
+		"linux_amd64/sortie", // per-platform wrapper, the current GoReleaser layout
+		"darwin_arm64/sortie",
+	} {
+		if !engineEntry(ok) {
+			t.Errorf("engineEntry(%q) = false, want true", ok)
+		}
+	}
+	for _, bad := range []string{
+		"../../sortie", // traversal
+		"a/b/sortie",   // nested deeper than a wrapper
+		"/sortie",      // absolute
+		"./sortie",     // relative
+		"sortie/../sortie",
+		"linux_amd64/sortie.exe",
+		"linux_amd64/sortie/LICENS",
+		"docs/notes.md",
+		"",
+	} {
+		if engineEntry(bad) {
+			t.Errorf("engineEntry(%q) = true, want false", bad)
+		}
+	}
+}
+
+// A real GoReleaser archive from the fork wraps the binary in a
+// per-platform directory. Extraction has to find it there; a check that
+// only accepted a root-level entry passed every unit test and failed on
+// the actual release.
+func TestCopyEngineEntryPerPlatformWrapper(t *testing.T) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
-	for _, n := range []string{"docs/sortie", "../../sortie", "sortie"} {
-		body := n
-		if n == "sortie" {
-			body = "the real engine"
-		}
+	for _, f := range []struct{ name, body string }{
+		{"linux_amd64/sortie", "the engine"},
+		{"linux_amd64/LICENSE", "license text"},
+		{"linux_amd64/README.md", "readme"},
+	} {
 		if err := tw.WriteHeader(&tar.Header{
-			Name: n, Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg,
+			Name: f.name, Mode: 0o755, Size: int64(len(f.body)), Typeflag: tar.TypeReg,
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tw.Write([]byte(body)); err != nil {
+		if _, err := tw.Write([]byte(f.body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := copyEngineEntry(tar.NewReader(&buf), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "the engine" {
+		t.Errorf("extracted %q, want the engine", out.String())
+	}
+}
+
+// A hostile entry is skipped rather than winning the match, so a tampered
+// archive cannot substitute its own binary for the one that was verified.
+func TestCopyEngineEntryRejectsNestedPath(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	// The hostile entries come first: with a basename test they would win.
+	for _, f := range []struct{ name, body string }{
+		{"../../sortie", "hostile"},
+		{"a/b/sortie", "hostile"},
+		{"sortie", "the real engine"},
+	} {
+		if err := tw.WriteHeader(&tar.Header{
+			Name: f.name, Mode: 0o755, Size: int64(len(f.body)), Typeflag: tar.TypeReg,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(f.body)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -303,13 +365,13 @@ func TestCopyEngineEntryRejectsNestedPath(t *testing.T) {
 	}
 }
 
-// An archive with no top-level `sortie` is an error naming what was
-// missing, not a silent empty install.
-func TestCopyEngineEntryRequiresTopLevel(t *testing.T) {
+// An archive with no engine in it is an error naming what was missing, not
+// a silent empty install.
+func TestCopyEngineEntryRequiresEngine(t *testing.T) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 	if err := tw.WriteHeader(&tar.Header{
-		Name: "bin/sortie", Mode: 0o755, Size: 2, Typeflag: tar.TypeReg,
+		Name: "bin/other", Mode: 0o755, Size: 2, Typeflag: tar.TypeReg,
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -250,16 +250,17 @@ hits that.
 
 ## Still open
 
-- **Open issues for the upstream divergence.** `kinged007/sortie` is 18
-  commits ahead of `sortie-ai/sortie` main and 0 behind, so it is a
-  superset rather than a stale fork; what it is missing is release
-  packaging, not source. Tracked as an issue on the fork.
-- **The fork has no installable release.** Both fork releases publish one
-  bare `sortie-linux-amd64` with no `checksums.txt` and no build for
-  darwin or arm64, so `ensureEngine` cannot install the pinned default.
-  The resolver stays strict — an unverified 29 MB binary is not a trade
-  worth making — and `engineReleaseHint` turns the 404 into the two
-  workarounds. Fixed by a GoReleaser release from the fork.
+- **The fork diverges and nothing re-syncs it.** `kinged007/sortie` is 18
+  commits ahead of `sortie-ai/sortie` main and 0 behind — a superset, not
+  a stale fork — but no automation merges upstream, so it will drift.
+  v1.26.0 also closed the `milestone:` gap: the github-pr tracker now
+  forwards `query_filter` to the search API like the issue path does,
+  rather than parsing three clauses client-side.
+- **The fork had no installable release** — resolved by fork v1.26.0,
+  a GoReleaser release with `checksums.txt` and all four platforms, and
+  identical to fork `main`. The pin is now v1.26.0 and the default path
+  installs and runs it. `engineReleaseHint` stays: a bare 404 is
+  unhelpful, and the fork could regress the same way.
 - **Repository metadata.** Description, homepage and topics are empty,
   and the repository is still private. Metadata is a `gh repo edit` away;
   going public is a decision, not a task.
