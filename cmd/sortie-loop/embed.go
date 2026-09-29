@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -131,20 +132,61 @@ func workflowPath(root, name string) string {
 // whatever files exist on disk, so adding WORKFLOW.triage.md (embedded
 // or hand-written) starts a triage loop with no code change — the loop
 // name is the filename stem ("triage").
-func discoverWorkflows(root string) []struct{ name, file string } {
+func discoverWorkflows(root string) []loopDef {
 	syncWorkflows(root, keepEdits)
 	entries, err := os.ReadDir(filepath.Join(root, ".sortie", "workflows"))
 	if err != nil {
 		fatal(err)
 	}
-	var loops []struct{ name, file string }
+	var loops []loopDef
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !strings.HasPrefix(name, "WORKFLOW.") || !strings.HasSuffix(name, ".md") {
 			continue
 		}
 		stem := strings.TrimSuffix(strings.TrimPrefix(name, "WORKFLOW."), ".md")
-		loops = append(loops, struct{ name, file string }{stem, name})
+		loops = append(loops, loopDef{stem, name})
 	}
 	return loops
+}
+
+// loopDef is one loop: its name (the WORKFLOW.*.md stem) and the file
+// sortie runs it from.
+type loopDef struct{ name, file string }
+
+// selectLoops narrows the discovered set to the comma-separated names
+// in only, so a supervisor can start a chosen subset of a repo's
+// loops. An empty only keeps them all, which is what a plain run does.
+// A name matching no installed workflow is an error rather than a
+// silent omission: the caller asked for a loop that does not exist, and
+// quietly starting the rest would leave that work unwatched.
+func selectLoops(loops []loopDef, only string) ([]loopDef, error) {
+	if strings.TrimSpace(only) == "" {
+		return loops, nil
+	}
+	keep := map[string]bool{}
+	for _, n := range strings.Split(only, ",") {
+		if n = strings.TrimSpace(n); n != "" {
+			keep[n] = true
+		}
+	}
+	if len(keep) == 0 {
+		return nil, fmt.Errorf("SORTIE_LOOP_ONLY=%q names no workflow", only)
+	}
+	var out []loopDef
+	for _, l := range loops {
+		if keep[l.name] {
+			out = append(out, l)
+			delete(keep, l.name)
+		}
+	}
+	if len(keep) > 0 {
+		unknown := make([]string, 0, len(keep))
+		for n := range keep {
+			unknown = append(unknown, n)
+		}
+		sort.Strings(unknown)
+		return nil, fmt.Errorf("no WORKFLOW.*.md named %s in this repo", strings.Join(unknown, " or "))
+	}
+	return out, nil
 }

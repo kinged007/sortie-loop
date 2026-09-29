@@ -4,12 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/kinged007/sortie-loop/internal/config"
 )
@@ -25,6 +22,10 @@ type cmdline struct {
 	dashPort    int
 	dumpVersion bool
 	showVersion bool
+	// remote is "stop" or "restart" when one of those subcommands was
+	// given, and remoteArgs is everything after it.
+	remote     string
+	remoteArgs []string
 }
 
 // errHelp is returned by parseArgs when usage was asked for.
@@ -55,6 +56,12 @@ func parseArgs(argv []string) (cmdline, error) {
 		switch name {
 		case "setup":
 			c.setup = true
+		case "stop", "restart":
+			// A subcommand: everything after it belongs to runRemote,
+			// which does its own parsing, so stop collecting here.
+			c.remote = name
+			c.remoteArgs = argv[i+1:]
+			i = len(argv)
 		case "--dump-version":
 			c.dumpVersion = true
 		case "--version", "-V":
@@ -85,7 +92,7 @@ func parseArgs(argv []string) (cmdline, error) {
 			c.dashPort = n
 		default:
 			if strings.HasPrefix(arg, "-") {
-				return c, fmt.Errorf("unknown flag %s", name)
+				return c, fmt.Errorf("unknown flag %q", arg)
 			}
 			bare = append(bare, arg)
 		}
@@ -96,28 +103,25 @@ func parseArgs(argv []string) (cmdline, error) {
 	return c, nil
 }
 
-// usageWriter receives the usage text; a variable so a test can read it.
 var usageWriter = func(s string) { fmt.Println(s) }
 
 func usage() {
-	usageWriter("Usage: sortie-loop [--no-server] [--no-dashboard] [--dashboard-port=N] [--unite] [repo-root]\n" +
-		"       sortie-loop setup [repo-root] [--repo=owner/name]\n" +
-		"  Run every WORKFLOW.*.md loop in .sortie/workflows/ against the repo at repo-root (default: cwd).\n" +
-		"  Settings live in <root>/.sortie/config.yaml; repo id defaults to the git remote.\n" +
-		"\n" +
-		"  --repo owner/name  tracker repository (default: the origin remote)\n" +
-		"  --unite            join or start the shared dashboard across repos\n" +
-		"  --dashboard-port=N serve the dashboard on port N\n" +
-		"  --no-dashboard     do not serve the dashboard\n" +
-		"  --no-server        do not start the per-loop debug servers\n" +
-		"  --version          print the sortie-loop version\n" +
-		"  --dump-version     print the pinned engine version\n")
+	usageWriter(`Usage: sortie-loop [--no-server] [--no-dashboard] [--dashboard-port=N] [--unite] [repo-root]
+         sortie-loop setup [repo-root] [--repo=owner/name]
+         sortie-loop stop [--when-idle] [repo-root]
+         sortie-loop restart [--when-idle] [repo-root]
+  Run every WORKFLOW.*.md loop in .sortie/workflows/ against the repo at repo-root (default: cwd).
+  SORTIE_LOOP_ONLY=plan,build  start only these loops (default: all of them)
+  Settings live in <root>/.sortie/config.yaml; repo id defaults to the git remote.
+  stop/restart act on the run already serving this repo-root, found through the shared registry.
+  stop and restart are immediate; --when-idle waits for each loop to finish what it is working on, one loop at a time.
+  --version prints the tool version and the engine it drives; --dump-version prints only the engine version.`)
 }
 
 func main() { os.Exit(run()) }
 
 func run() (code int) {
-	// fatal reports through a panic so the deferred cleanup above runs on
+	// fatal reports through a panic so the deferred cleanup below runs on
 	// every error path, including a loop that failed to start after
 	// earlier loops were already running.
 	defer func() {
@@ -142,15 +146,19 @@ func run() (code int) {
 	}
 	if c.dumpVersion {
 		fmt.Println(engineVersion())
-		return
+		return 0
 	}
 	if c.showVersion {
 		fmt.Printf("sortie-loop %s (engine %s)\n", version, engineVersion())
-		return
+		return 0
 	}
 	if c.setup {
 		runSetup(c.dir, c.repo)
-		return
+		return 0
+	}
+	if c.remote != "" {
+		runRemote(c.remote, c.remoteArgs)
+		return 0
 	}
 	dir := c.dir
 	if dir == "" {
@@ -175,11 +183,13 @@ func run() (code int) {
 	if err != nil {
 		fatal(err)
 	}
-	envFile, err := writeEnvFile(abs, cfg)
+	// SORTIE_LOOP_ONLY selects a subset of the installed loops, for a
+	// supervisor driving several repos. Unset starts every loop, so a
+	// plain sortie-loop run is unchanged.
+	loops, err := selectLoops(discoverWorkflows(abs), os.Getenv("SORTIE_LOOP_ONLY"))
 	if err != nil {
 		fatal(err)
 	}
-	loops := discoverWorkflows(abs)
 	if len(loops) == 0 {
 		fatal(fmt.Errorf("no WORKFLOW.*.md files in %s", filepath.Join(abs, ".sortie", "workflows")))
 	}
@@ -223,88 +233,39 @@ func run() (code int) {
 			dashPort = dash
 		}
 	}
-	var procs []*exec.Cmd
+	names := make([]string, len(loops))
+	for i, l := range loops {
+		names[i] = l.name
+	}
+	sup := newSupervisor(abs, bin, loops, loopPorts)
+	// Ordered rather than deferred in the body: os.Exit would skip a
+	// defer, and the children and the registry entry both have to be
+	// cleaned up on the way out whatever ends the run — including a
+	// fatal from a loop that failed to start after others were running.
 	defer func() {
+		sup.shutdown()
 		dropRegistry(abs)
-		for _, p := range procs {
-			if p.Process != nil {
-				_ = p.Process.Signal(syscall.SIGTERM)
-			}
-		}
-		for _, p := range procs {
-			if p.Process != nil {
-				_ = p.Wait()
-			}
+		if lock != nil {
+			lock.release()
 		}
 	}()
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	for i, l := range loops {
-		// The env override replaces the workflow's query_filter, so
-		// defaultFilters must mirror each loop's label clauses (the
-		// github-pr adapter enforces label: client-side); a filters:
-		// entry narrows further, it does not add to the default.
-		filter := cfg.FilterFor(l.name)
-		env := append(os.Environ(), cfg.Env()...)
-		if filter != "" {
-			env = append(env, "SORTIE_TRACKER_QUERY_FILTER="+filter)
-		}
-		cmd, port, err := startLoopChild(bin, envFile, abs, l.file, env, loopPorts[i])
-		if err != nil {
-			fatal(fmt.Errorf("start %s loop: %w", l.name, err))
-		}
-		loopPorts[i] = port
-		procs = append(procs, cmd)
+	if err := sup.startAll(names); err != nil {
+		fatal(err)
 	}
+	sup.republish()
 	// Startup done: every child bound its port, so the next run's probe
 	// sees them; free the port-claim lock for the rest of the lifetime.
 	if lock != nil {
 		lock.release()
 	}
-	endpoints := make([]loopEndpoint, len(loops))
-	for i, l := range loops {
-		endpoints[i] = loopEndpoint{
-			Repo:     abs,
-			RepoName: repoName(abs),
-			Loop:     l.name,
-			Port:     loopPorts[i],
-			DBPath:   dbPathFor(abs, l.file),
-		}
-	}
-	if err := writeRegistry(abs, endpoints); err != nil {
-		fmt.Fprintln(os.Stderr, "sortie-loop: registry:", err)
-	}
 	// dashPort is negative when this run joins a live unite dashboard:
 	// its loops register above, and the existing page picks them up.
 	if !noDashboard && dashPort > 0 {
-		serveDashboard(dashPort, unite, endpoints)
+		serveDashboard(dashPort, unite, sup)
 	} else if dashPort < 0 {
 		fmt.Printf("dashboard http://127.0.0.1:%d (unite: all repos)\n", -dashPort)
 	}
-	// A loop child exiting ends the run, exactly as a signal does: the
-	// deferred cleanup stops the remaining children and drops the
-	// registry entry, then run returns the exit code. Signalling the
-	// children directly rather than process group 0 keeps the signal away
-	// from the shell and every other process sharing the terminal.
-	exited := make(chan error, len(procs))
-	for _, p := range procs {
-		go func(c *exec.Cmd) {
-			if err := c.Wait(); err != nil {
-				exited <- fmt.Errorf("loop process: %w", err)
-				return
-			}
-			exited <- nil
-		}(p)
-	}
-	select {
-	case s := <-sig:
-		fmt.Fprintf(os.Stderr, "sortie-loop: %s, stopping loops\n", s)
-	case err := <-exited:
-		if err != nil {
-			return 1
-		}
-	}
-	return 0
+	return sup.run()
 }
 
 // fatalError carries a message out to run's recover, so the deferred
