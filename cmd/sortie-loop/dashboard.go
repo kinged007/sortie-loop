@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -100,6 +102,11 @@ type dashData struct {
 	AllRuns     int
 	AllFailed   int
 	RunningN    int
+	// Draining marks the loops that are waiting to stop, and Controls
+	// says the page can act: a unite page spans repos, and a button on it
+	// would have no single run to signal.
+	Draining map[string]bool
+	Controls bool
 }
 
 type repoRollup struct {
@@ -112,12 +119,12 @@ type repoRollup struct {
 
 // collectStats fans out to every known endpoint: live state via HTTP,
 // all-time figures straight from each SQLite DB.
-func collectStats(unite bool, own []loopEndpoint) dashData {
+func collectStats(unite bool, sup *supervisor) dashData {
 	var endpoints []loopEndpoint
 	if unite {
 		endpoints = readRegistry()
 	} else {
-		endpoints = own
+		endpoints = sup.endpoints()
 	}
 	stats := make([]loopStats, len(endpoints))
 	done := make(chan int, len(endpoints))
@@ -136,7 +143,13 @@ func collectStats(unite bool, own []loopEndpoint) dashData {
 		}
 		return stats[i].Endpoint.Loop < stats[j].Endpoint.Loop
 	})
-	d := dashData{GeneratedAt: time.Now().UTC(), Unite: unite, Loops: stats, Issues: readIssueStats(endpoints)}
+	d := dashData{
+		GeneratedAt: time.Now().UTC(), Unite: unite, Loops: stats,
+		Issues: readIssueStats(endpoints), Controls: !unite,
+	}
+	if !unite {
+		d.Draining = sup.draining()
+	}
 	repos := map[string]*repoRollup{}
 	for _, s := range stats {
 		d.AllTotal += s.AllTotal
@@ -164,14 +177,43 @@ func collectStats(unite bool, own []loopEndpoint) dashData {
 	return d
 }
 
-// serveDashboard runs the unite dashboard HTTP server in the background.
-func serveDashboard(port int, unite bool, own []loopEndpoint) {
+// serveDashboard runs this repo's dashboard HTTP server in the background.
+//
+// The server is bound to loopback, and the control route is no more open
+// than that: it can only signal the process it is served by, and only a
+// process on this host that can reach the port can do that. That is the
+// same bar SIGTERM has always had, which is why the buttons are just
+// signals to self.
+func serveDashboard(port int, unite bool, sup *supervisor) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := dashTmpl.Execute(w, collectStats(unite, own)); err != nil {
+		if err := dashTmpl.Execute(w, collectStats(unite, sup)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
+	})
+	mux.HandleFunc("POST /control", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		sig, ok := map[string]syscall.Signal{
+			"stop":     syscall.SIGTERM,
+			"stopIdle": sigStopIdle,
+			"restart":  sigRestartIdle,
+		}[r.PostFormValue("op")]
+		if !ok {
+			http.Error(w, "unknown op", http.StatusBadRequest)
+			return
+		}
+		// Signalled to self rather than handled here: one code path serves
+		// the buttons, the command line and any other caller.
+		if err := syscall.Kill(os.Getpid(), sig); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Location", "/")
+		w.WriteHeader(http.StatusSeeOther)
 	})
 	go func() {
 		_ = http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", port), mux)

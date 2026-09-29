@@ -36,6 +36,17 @@
       .mode-badge { font-size: 0.75rem; padding: 0.15rem 0.5rem; background: var(--border); border-radius: 4px; color: var(--text-secondary); }
       .header-right { font-size: 0.875rem; color: var(--text-secondary); }
       .summary-cards { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+      .controls { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
+                  margin: 0 0 1.5rem; padding: 0.75rem 1rem;
+                  border: 1px solid var(--border); border-radius: 6px;
+                  background: var(--bg-secondary); }
+      .controls form { display: inline; }
+      .controls button { font: inherit; cursor: pointer; padding: 0.3rem 0.7rem;
+                         border: 1px solid var(--border); border-radius: 4px;
+                         background: var(--bg); color: inherit; }
+      .controls button:hover { border-color: var(--text-secondary); }
+      .controls .hint { color: var(--text-secondary); font-size: 0.8rem; }
+      .controls .draining { color: var(--color-retrying); font-weight: 600; }
       .card { flex: 1; min-width: 140px; text-align: center; padding: 1.25rem 1rem; background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; border-top: 3px solid var(--border); }
       .card-running { border-top-color: var(--color-running); }
       .card-tokens { border-top-color: var(--color-tokens); }
@@ -87,6 +98,16 @@
           <div class="card-label">Failed runs</div>
         </div>
       </section>
+
+      {{if .Controls}}
+      <section class="controls">
+        <form method="post" action="/control"><button type="submit" name="op" value="stop">stop</button></form>
+        <form method="post" action="/control"><button type="submit" name="op" value="stopIdle" title="Each loop stops as soon as it has no work in flight, one loop at a time">stop when idle</button></form>
+        <form method="post" action="/control"><button type="submit" name="op" value="restart" title="Each loop is replaced as soon as it has no work in flight, one loop at a time, picking up the workflow and settings now on disk">restart when idle</button></form>
+        {{if .Draining}}<span class="draining">draining — each loop stops at its next gap</span>{{end}}
+        <span class="hint">These act on this run. stop is immediate; the others wait for the current run to finish, and a loop that has just started is left alone for 20s so it is not called idle before it has worked.</span>
+      </section>
+      {{end}}
 
       {{if .Unite}}
       <section>

@@ -146,6 +146,12 @@ named by its stem on the next run. Per-loop label queries can be
 narrowed via the `filters:` map in `.sortie/config.yaml` without
 re-running setup.
 
+`SORTIE_LOOP_ONLY=plan,build` narrows the run to the named loops, for a
+supervisor that drives several repos and wants a different set per
+repo. Unset (the default) runs every installed loop. A name that
+matches no installed workflow is fatal rather than silently dropped, so
+a typo cannot leave that loop's work unwatched.
+
 ## Unified dashboard
 
 Every run serves a small status page (default
@@ -274,6 +280,9 @@ Flags: `--unite` joins (or starts) the shared dashboard,
 `--no-dashboard` / `--no-server` disable the dashboard page and the
 per-loop debug ports respectively. A positional arg selects the repo
 root (default: current directory).
+
+`SORTIE_LOOP_ONLY=plan,build` starts only those loops; unset runs them
+all. This is how `sortie-central` picks a per-repo workflow set.
 
 ## Layout in the target repo
 
