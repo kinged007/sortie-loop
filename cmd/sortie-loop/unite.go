@@ -47,6 +47,9 @@ type registryEntry struct {
 	UpdatedAt time.Time      `json:"updated_at"`
 	PID       int            `json:"pid"`
 	Loops     []loopEndpoint `json:"loops"`
+	// Args is the run's own command line, so a client replacing it can
+	// start the next one with the same flags instead of guessing.
+	Args []string `json:"args,omitempty"`
 }
 
 // registryPath returns the shared registry file, creating its directory.
@@ -179,6 +182,7 @@ func writeRegistry(root string, endpoints []loopEndpoint) error {
 		UpdatedAt: time.Now().UTC(),
 		PID:       os.Getpid(),
 		Loops:     endpoints,
+		Args:      os.Args[1:],
 	}
 	data, err := json.MarshalIndent(reg, "", "  ")
 	if err != nil {

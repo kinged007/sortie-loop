@@ -43,7 +43,7 @@ func main() {
 		fmt.Println("  SORTIE_LOOP_ONLY=plan,build  start only these loops (default: all of them)")
 		fmt.Println("  Settings live in <root>/.sortie/config.yaml; repo id defaults to the git remote.")
 		fmt.Println("  stop/restart act on the run already serving this repo-root, found through the shared registry.")
-		fmt.Println("  --when-idle waits for each loop to finish what it is working on, one loop at a time.")
+		fmt.Println("  stop and restart are immediate; --when-idle waits for each loop to finish what it is working on, one loop at a time.")
 		fmt.Println("  Settings live in <root>/.sortie/config.yaml; repo id defaults to the git remote.")
 		os.Exit(0)
 	}
