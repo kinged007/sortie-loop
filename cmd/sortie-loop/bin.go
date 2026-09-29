@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,7 +9,8 @@ import (
 )
 
 // resolveSortieBin finds the sortie binary: SORTIE_BIN env, beside the
-// loop binary, on PATH, else the install.sh symlink under PREFIX.
+// loop binary, on PATH, else download the pinned engine and link it onto
+// PATH.
 func resolveSortieBin() (string, error) {
 	if v := os.Getenv("SORTIE_BIN"); v != "" {
 		return v, nil
@@ -25,7 +25,7 @@ func resolveSortieBin() (string, error) {
 	if p, err := exec.LookPath("sortie"); err == nil {
 		return p, nil
 	}
-	return ensureSortieBin()
+	return ensureEngine()
 }
 
 // writeEnvFile writes the resolved settings to .sortie/.env.loop so the
@@ -44,50 +44,6 @@ func writeEnvFile(dir string, cfg *config.Config) (string, error) {
 	}
 	cfg.EnvFile = path
 	return path, nil
-}
-
-// ensureSortieBin returns the install.sh-downloaded sortie binary path.
-// ponytail: checksum/signature verification when the release process
-// matures beyond a single custom binary.
-// ensureSortieLink exposes the resolved sortie engine as `sortie` next to
-// the loop binary so bare `sortie` commands (e.g. `sortie validate`)
-// work. A missing engine is a warning — config and labels don't need it.
-func ensureSortieLink() {
-	bin, err := resolveSortieBin()
-	if err != nil {
-		fmt.Println("warning: sortie engine not found; rerun install.sh or set SORTIE_BIN")
-		return
-	}
-	self, err := os.Executable()
-	if err != nil {
-		return
-	}
-	dest := filepath.Join(filepath.Dir(self), "sortie")
-	if cur, err := os.Readlink(dest); err == nil && cur == bin {
-		return
-	}
-	if err := linkFile(dest, bin); err != nil {
-		fmt.Println("warning:", err)
-		return
-	}
-	fmt.Println("linked", dest, "->", bin)
-}
-
-// linkFile replaces dest with a symlink to target, creating the dir.
-func linkFile(dest, target string) error {
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return err
-	}
-	os.Remove(dest)
-	return os.Symlink(target, dest)
-}
-
-func ensureSortieBin() (string, error) {
-	dest := filepath.Join(homeDir(), ".local", "share", "sortie-loop", "sortie-"+sortieVersion)
-	if _, err := os.Stat(dest); err == nil {
-		return dest, nil
-	}
-	return "", fmt.Errorf("sortie binary not found (looked for SORTIE_BIN, ./sortie, PATH, %s); download sortie "+sortieVersion+" from https://github.com/kinged007/sortie/releases and set SORTIE_BIN, or rerun install.sh", dest)
 }
 
 func homeDir() string {

@@ -165,25 +165,85 @@ func TestEnsureGitignoreIgnoresSortieWholesale(t *testing.T) {
 	}
 }
 
-func TestLinkFileReplacesStaleDest(t *testing.T) {
-	root := t.TempDir()
-	target := filepath.Join(root, "engine")
-	os.WriteFile(target, []byte("x"), 0o755)
-	dest := filepath.Join(root, "bin", "sortie")
-	if err := linkFile(dest, target); err != nil {
+// linkEngineAt owns the only symlink this tool writes. The directory is
+// passed in so the test never reaches into the real home directory.
+func TestLinkEngineAtReplacesStaleLink(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "data", "sortie-loop")
+	src := filepath.Join(bin, "sortie-1.0.0")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := os.Readlink(dest); err != nil || got != target {
-		t.Fatalf("readlink = %q, %v; want %q", got, err, target)
-	}
-	// Re-linking to a new target replaces the old symlink.
-	newTarget := filepath.Join(root, "engine2")
-	os.WriteFile(newTarget, []byte("y"), 0o755)
-	if err := linkFile(dest, newTarget); err != nil {
+	if err := os.WriteFile(src, []byte("engine"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.Readlink(dest); got != newTarget {
-		t.Errorf("readlink = %q, want %q", got, newTarget)
+	bindir := filepath.Join(dir, "bin")
+	link := filepath.Join(bindir, "sortie")
+
+	if got := linkEngineAt(src, bindir); got != link {
+		t.Fatalf("link = %q, want %q", got, link)
+	}
+	if got, err := os.Readlink(link); err != nil || got != src {
+		t.Fatalf("readlink = %q, %v; want %q", got, err, src)
+	}
+	// Re-linking to the same target is a no-op, not an error.
+	if got := linkEngineAt(src, bindir); got != link {
+		t.Errorf("idempotent link = %q, want %q", got, link)
+	}
+	// A version bump re-points the same link at the new binary.
+	next := filepath.Join(bin, "sortie-2.0.0")
+	if err := os.WriteFile(next, []byte("engine2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := linkEngineAt(next, bindir); got != link {
+		t.Fatalf("relink = %q, want %q", got, link)
+	}
+	if got, _ := os.Readlink(link); got != next {
+		t.Errorf("readlink = %q, want %q", got, next)
+	}
+}
+
+// A `sortie` this tool did not install is left alone rather than
+// replaced.
+func TestLinkEngineAtLeavesForeignBinary(t *testing.T) {
+	dir := t.TempDir()
+	bindir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bindir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	foreign := filepath.Join(bindir, "sortie")
+	if err := os.WriteFile(foreign, []byte("not ours"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(dir, "data", "sortie-loop", "sortie-1.0.0")
+	if err := os.MkdirAll(filepath.Dir(src), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(src, []byte("engine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := linkEngineAt(src, bindir); got != "" {
+		t.Errorf("foreign link replaced, returned %q", got)
+	}
+	if raw, err := os.ReadFile(foreign); err != nil || string(raw) != "not ours" {
+		t.Errorf("foreign binary changed: %q, %v", raw, err)
+	}
+}
+
+// The engine is linked into the sortie-loop directory when that is on
+// PATH, so one PATH entry covers both tools.
+func TestEngineBindirPrefersLoopDirOnPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	local := filepath.Join(home, ".local", "bin")
+
+	t.Setenv("PATH", local)
+	if dir, onPath := engineBindir(); dir != local || !onPath {
+		t.Errorf("bindir = %q, onPath = %v; want %q, true", dir, onPath, local)
+	}
+	t.Setenv("PATH", "/nonexistent")
+	if dir, onPath := engineBindir(); dir != local || onPath {
+		t.Errorf("bindir = %q, onPath = %v; want %q, false", dir, onPath, local)
 	}
 }
 

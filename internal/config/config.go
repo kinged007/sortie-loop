@@ -128,7 +128,7 @@ func Load(dir string) (*Config, error) {
 		}
 		c.Repo = slug
 	}
-	c.Repo = normalizeRepo(c.Repo)
+	c.Repo = NormalizeRepo(c.Repo)
 	if c.Repo == "" || !strings.Contains(c.Repo, "/") {
 		return nil, fmt.Errorf("expected owner/name, got %q (set repo: in .sortie/config.yaml or SORTIE_LOOP_REPO)", c.Repo)
 	}
@@ -211,6 +211,17 @@ func (c *Config) Env() []string {
 	}
 }
 
+// CheckToken reports an error when no token resolved. An empty token
+// reaches the engine as SORTIE_TRACKER_API_KEY= and surfaces there as an
+// authentication failure partway into a run, with the loop already
+// claimed and the agent mid-work. Failing here names the cause instead.
+func (c *Config) CheckToken() error {
+	if c.Token != "" {
+		return nil
+	}
+	return errors.New("no GitHub token found. Set one of SORTIE_LOOP_TOKEN, token: in .sortie/config.yaml, GITHUB_TOKEN, or GH_TOKEN (see the GitHub token section of the README)")
+}
+
 func withScope(base, assignee string) string {
 	if assignee == "" {
 		return base
@@ -237,10 +248,12 @@ func detectRepo(dir string) (string, error) {
 	if err != nil {
 		return "", errors.New("cannot detect repo from git remote (not a git checkout or no origin remote? set repo: in .sortie/config.yaml or SORTIE_LOOP_REPO)")
 	}
-	return normalizeRepo(strings.TrimSpace(string(out))), nil
+	return NormalizeRepo(strings.TrimSpace(string(out))), nil
 }
 
-func normalizeRepo(s string) string {
+// NormalizeRepo reduces a git remote URL to its owner/name slug, so the
+// same parser serves config, setup, and the display name.
+func NormalizeRepo(s string) string {
 	s = strings.TrimSpace(s)
 	s = strings.TrimSuffix(s, "/")
 	s = strings.TrimSuffix(s, ".git")

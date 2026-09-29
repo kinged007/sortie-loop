@@ -168,27 +168,58 @@ column. Without `--unite` the dashboard shows only its own repo.
 
 ## Install
 
-Requires: **go >= 1.24**, **git**, and the **gh CLI** (`setup` shells
-out to `gh`; the agent prompts use it throughout).
+macOS and Linux, on Intel or Apple silicon.
 
 ```sh
-git clone https://github.com/kinged007/sortie-loop.git
-cd sortie-loop
-./install.sh                    # -> ~/.local/bin/sortie-loop
+curl -sSL https://raw.githubusercontent.com/kinged007/sortie-loop/main/install.sh | sh
 ```
 
-`install.sh` builds the Go binary, then resolves the `sortie` engine
-binary: it links one already on `PATH` if present, otherwise downloads
-the matching release from the
-[kinged007/sortie](https://github.com/kinged007/sortie) fork
-(`--prefix DIR` and `--sortie-bin PATH` override the install dir and
-the engine binary). Only build the engine from source if the download
-fails:
+That downloads a release binary to `~/.local/bin/sortie-loop` and checks
+it against the release's `checksums.txt`. No Go toolchain needed.
+`./install.sh --prefix DIR` installs elsewhere, `--version TAG` pins a
+release, and `--from-source` builds from a checkout.
+
+Already have Go?
 
 ```sh
-git clone https://github.com/kinged007/sortie.git
-cd sortie && go build -o ~/.local/bin/sortie ./cmd/sortie
+go install github.com/kinged007/sortie-loop/cmd/sortie-loop@latest
 ```
+
+Also requires the **gh CLI** — `setup` shells out to it, and the agent
+prompts use it throughout.
+
+### The engine
+
+`sortie-loop` is the supervisor. The work is done by the **engine**, a
+`sortie` binary, which polls GitHub, claims work, and runs the agents.
+`sortie-loop setup` downloads the pinned engine release, verifies it
+against that release's `checksums.txt`, and links it onto your `PATH` as
+`sortie`, so `sortie validate` and `sortie stats` work in any shell. A
+fresh install needs no separate engine step.
+
+The pinned version is the release the shipped workflows were written
+against. Read it with `sortie-loop --dump-version`.
+
+The engine comes from the [kinged007/sortie](https://github.com/kinged007/sortie)
+fork, not from upstream `sortie-ai/sortie`. The fork exists because the
+workflows need two things upstream does not ship: the **pi agent
+adapter**, and the **github-pr tracker**, which treats pull requests as
+work items so a review loop can watch a pull request rather than an
+issue. See [SECURITY.md](SECURITY.md) for what running a fork means.
+
+To use a different build of the same engine, set `SORTIE_ENGINE_REPO`
+and, if its version differs, `SORTIE_ENGINE_VERSION`. To bring your own
+binary, set `SORTIE_BIN`. The engine version is pinned rather than
+resolved to "latest" on purpose: the workflows are written against
+specific engine behaviour, and an engine that changes under them breaks
+loops in ways that are hard to trace.
+
+| Variable | Effect |
+|---|---|
+| `SORTIE_BIN` | use this engine binary |
+| `SORTIE_ENGINE_REPO` | fetch the engine from this repository's releases |
+| `SORTIE_ENGINE_VERSION` | fetch this version instead of the pin |
+| `SORTIE_ENGINE_URL` | fetch one archive from this URL (with `SORTIE_ENGINE_SHA256` to verify it) |
 
 ### GitHub token
 
@@ -221,13 +252,21 @@ your personal name.
 ```sh
 cd your-repo
 sortie-loop setup    # writes .sortie/config.yaml, updates .gitignore, creates the labels,
-                     # and installs .sortie/pm-agent.md (a project-manager prompt)
+                     # installs the engine, and installs .sortie/pm-agent.md
+                     # (a project-manager prompt)
 sortie-loop          # run every WORKFLOW.*.md loop (Ctrl-C stops all)
 ```
 
 `setup` detects `owner/name` from the git `origin` remote
 (`--repo=owner/name` overrides). The loop re-detects it at every run, so
-moving the checkout or forking needs no reconfiguration.
+moving the checkout or forking needs no reconfiguration. A positional
+argument selects the repository root and may sit anywhere on the line,
+so `sortie-loop setup ./repo --repo owner/name` and
+`sortie-loop setup --repo owner/name ./repo` do the same thing.
+
+`setup` confirms before changing a label whose colour or description
+differs from the shipped one, the same way it confirms before replacing
+an edited workflow file.
 
 Flags: `--unite` joins (or starts) the shared dashboard,
 `--dashboard-port=N` forces the dashboard onto port N,
@@ -333,8 +372,29 @@ or publishing the agent as a GitHub App (`name[bot]`, its own avatar).
 ## Building
 
 ```sh
-go build ./... && go vet ./...
+go build ./... && go vet ./... && go test ./...
 ```
+
+Go 1.26.0 or newer. The floor comes from the dependencies:
+`golang.org/x/sys` requires 1.26.0 and `modernc.org/sqlite` requires
+1.25.0. `go install` needs the same version, so use a release binary if
+yours is older.
+
+## Known limitations
+
+- **Milestone scoping does not filter pull requests.** `milestone:` in
+  `.sortie/config.yaml` is appended to every loop's query filter, but the
+  engine's `github-pr` adapter parses only `label:`, `assignee:` and
+  `-label:` clauses, so the milestone clause is ignored on the `review`,
+  `review-fix` and `merge` loops. Issue loops honour it.
+- **One crashed loop stops the run.** A loop process exiting ends
+  `sortie-loop`, as a signal does. The remaining loops are stopped
+  cleanly and the registry entry is dropped, but nothing restarts them.
+- **Workflow files are not version-stamped.** A workflow file you have
+  not edited is not updated when the binary is upgraded. Delete it and
+  re-run `setup` to take the shipped version.
+- **Windows is unsupported.** The engine releases a `.zip`; the
+  installer reads `tar.gz`.
 
 ## Customizing agents and workflows
 
@@ -366,9 +426,13 @@ Sortie upstream references:
 
 ## Roadmap
 
-- Enforce `milestone:` on the `github-pr` tracker path. Config already
-  appends `milestone:"..."` to every loop's query filter, but sortie's
-  github-pr adapter parses only `label:` / `assignee:` / `-label:`
-  clauses — the milestone clause is silently ignored and `domain.Issue`
-  carries no milestone field. Until the adapter parses it, milestone
-  scoping does not filter PR loops.
+- Enforce `milestone:` on the `github-pr` tracker path, which
+  [Known limitations](#known-limitations) records as the one open
+  correctness gap. Config already appends `milestone:"..."` to every
+  loop's query filter, but the github-pr adapter parses only `label:` /
+  `assignee:` / `-label:` clauses. Until it parses it, milestone scoping
+  does not filter PR loops.
+- Re-sync the engine fork with `sortie-ai/sortie`. The fork is behind
+  upstream and carries the `pi` adapter and `github-pr` tracker; what it
+  is missing and what re-syncing costs should be recorded as issues
+  before the first public release.

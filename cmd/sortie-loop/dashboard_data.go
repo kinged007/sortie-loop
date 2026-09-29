@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -74,7 +75,10 @@ type issueStats struct {
 // immutable open cannot see. A read-only query takes no write lock, and
 // _query_only blocks writes through this handle.
 func openRO(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_query_only=1")
+	// The DSN is a URL, so a repository path holding ? or # would end the
+	// path early and turn the rest into query parameters.
+	u := url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro&_query_only=1"}
+	db, err := sql.Open("sqlite", u.String())
 	if err != nil {
 		return nil, err
 	}

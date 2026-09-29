@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: check
+        run: |
+          gofmt_out=$(gofmt -l cmd internal)
+          if [ -n "$gofmt_out" ]; then
+            echo "gofmt needed on:"; echo "$gofmt_out"; exit 1
+          fi
+          go vet ./...
+          go test ./...
+
+      - name: verify the tag matches the module path
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          case "$tag" in
+            v*) ;;
+            *) echo "tag must start with v, got $tag"; exit 1 ;;
+          esac
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

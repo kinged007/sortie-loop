@@ -1,0 +1,94 @@
+# Security
+
+## What this tool does
+
+`sortie-loop` runs autonomous coding agents against a GitHub repository.
+Each loop watches for issues and pull requests carrying a trigger label,
+clones the repository into a scratch workspace, and hands the item to a
+coding agent. The agent reads files, edits code, runs commands, commits,
+pushes branches, opens pull requests, and moves labels.
+
+**The agent is a program that executes with your credentials.** Treat
+enabling a loop as equivalent to giving a person shell access to your
+machine and write access to your repository, because in effect that is
+what it does.
+
+## The trust model
+
+Three things run on your machine, and you are trusting all of them.
+
+1. **`sortie-loop`** — this tool. Sets up config, labels and workflows,
+   then supervises one engine process per loop and serves a local
+   dashboard.
+2. **The engine** — the [sortie](https://github.com/sortie-ai/sortie)
+   binary. It polls GitHub, claims work, clones the repository, and hands
+   each item to an agent. `sortie-loop` pins a specific release and
+   verifies the download against that release's `checksums.txt`.
+3. **The agent** — a coding agent such as [pi](https://github.com/badlogic/pi-mono).
+   This is the component that reads your files and runs your commands.
+
+The shipped workflows need two pieces the upstream engine does not
+ship: the **pi agent adapter** and the **github-pr tracker** (which
+treats pull requests as work items). They are provided by the
+[kinged007/sortie](https://github.com/kinged007/sortie) fork, so
+installing `sortie-loop` means running a fork. `SORTIE_ENGINE_REPO`
+points the installer at a different build of the same engine; whatever
+it points at must still carry both adapters. Building the engine from
+source is the way to read the code you are about to execute.
+
+## Token scope
+
+One token is the identity of both the loop and the agent. It
+authenticates GitHub API polling, label changes, clones of private
+repositories, and every `gh` command the agent runs.
+
+A loop that can read an issue can act on it, and a token that can push
+to `main` means a misbehaving or confused agent can push to `main`.
+Prefer the narrowest scope that works:
+
+- **Fine-grained tokens** over classic ones. Grant access only to the
+  repositories you loop over, with **Contents: read and write**, plus
+  **Issues: read and write** and **Pull requests: read and write**.
+  Omit everything else, and set a short expiry.
+- **A separate bot account** keeps agent commits, comments and pull
+  requests off your personal name, and lets you revoke access without
+  affecting your own credentials.
+- **Branch protection is your last line of defence.** Require review and
+  require CI to pass, so a merged agent branch still cannot reach the
+  default branch without a person.
+
+The token is read from the first of `SORTIE_LOOP_TOKEN`, `token:` in
+`.sortie/config.yaml`, `GITHUB_TOKEN`, `GH_TOKEN`. It is written to
+`.sortie/.env.loop` with mode `0600` and passed to engine processes in
+their environment, so it is readable by your user account and appears in
+`/proc/<pid>/environ`. Do not put a token in `token:` in a config file
+you track in git.
+
+## The dashboard
+
+The dashboard binds to `127.0.0.1` only and has no authentication, so it
+is reachable by any process running as you and by nothing else. It
+renders issue titles and agent output from GitHub. Do not port-forward or
+proxy it to a network you do not control without putting authentication
+in front of it.
+
+## Running the loops
+
+The agent runs whatever the workflow tells it to, including the project's
+own test and build commands. In practice:
+
+- Give a loop a repository you are willing to have modified, not your
+  only copy of important work.
+- Start with a label and one issue. Watch what it does before queueing a
+  backlog.
+- Read the summary comments the agents post. `needs-human` means an
+  agent stopped and wants you.
+- Loops merge pull requests when labelled `agent:merge`. Nothing applies
+  that label automatically; a person or the PM prompt does.
+
+## Reporting a vulnerability
+
+Report a security issue privately by opening a
+[GitHub security advisory](https://github.com/kinged007/sortie-loop/security/advisories/new)
+on this repository rather than a public issue. Include the version, the
+platform, and what an attacker would gain.
