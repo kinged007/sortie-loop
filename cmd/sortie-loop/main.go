@@ -3,11 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"github.com/kinged007/sortie-loop/internal/config"
 )
@@ -33,12 +30,20 @@ func main() {
 		runSetup(dir)
 		return
 	}
+	if len(os.Args) > 1 && (os.Args[1] == "restart" || os.Args[1] == "stop") {
+		runRemote(os.Args[1], os.Args[2:])
+		return
+	}
 	if len(os.Args) > 1 && (os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "help") {
 		fmt.Println("Usage: sortie-loop [--no-server] [--no-dashboard] [--dashboard-port=N] [--unite] [repo-root]")
 		fmt.Println("         sortie-loop setup [repo-root] [--repo=owner/name]")
+		fmt.Println("         sortie-loop stop [--when-idle] [repo-root]")
+		fmt.Println("         sortie-loop restart [--when-idle] [repo-root]")
 		fmt.Println("  Run every WORKFLOW.*.md loop in .sortie/workflows/ against the repo at repo-root (default: cwd).")
 		fmt.Println("  SORTIE_LOOP_ONLY=plan,build  start only these loops (default: all of them)")
 		fmt.Println("  Settings live in <root>/.sortie/config.yaml; repo id defaults to the git remote.")
+		fmt.Println("  stop/restart act on the run already serving this repo-root, found through the shared registry.")
+		fmt.Println("  --when-idle waits for each loop to finish what it is working on, one loop at a time.")
 		fmt.Println("  Settings live in <root>/.sortie/config.yaml; repo id defaults to the git remote.")
 		os.Exit(0)
 	}
@@ -84,10 +89,6 @@ func main() {
 		fatal(err)
 	}
 	bin, err := resolveSortieBin()
-	if err != nil {
-		fatal(err)
-	}
-	envFile, err := writeEnvFile(abs, cfg)
 	if err != nil {
 		fatal(err)
 	}
@@ -141,82 +142,34 @@ func main() {
 			dashPort = dash
 		}
 	}
-	var procs []*exec.Cmd
-	defer func() {
-		dropRegistry(abs)
-		for _, p := range procs {
-			if p.Process != nil {
-				_ = p.Process.Signal(syscall.SIGTERM)
-			}
-		}
-		for _, p := range procs {
-			if p.Process != nil {
-				_ = p.Wait()
-			}
-		}
-	}()
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sig
-		for _, p := range procs {
-			if p.Process != nil {
-				_ = p.Process.Signal(syscall.SIGTERM)
-			}
-		}
-	}()
+	names := make([]string, len(loops))
 	for i, l := range loops {
-		// The env override replaces the workflow's query_filter, so
-		// defaultFilters must mirror each loop's label clauses (the
-		// github-pr adapter enforces label: client-side); a filters:
-		// entry narrows further, it does not add to the default.
-		filter := cfg.FilterFor(l.name)
-		env := append(os.Environ(), cfg.Env()...)
-		if filter != "" {
-			env = append(env, "SORTIE_TRACKER_QUERY_FILTER="+filter)
-		}
-		cmd, port, err := startLoopChild(bin, envFile, abs, l.file, env, loopPorts[i])
-		if err != nil {
-			fatal(fmt.Errorf("start %s loop: %w", l.name, err))
-		}
-		loopPorts[i] = port
-		procs = append(procs, cmd)
+		names[i] = l.name
 	}
+	sup := newSupervisor(abs, bin, loops, loopPorts)
+	if err := sup.startAll(names); err != nil {
+		fatal(err)
+	}
+	sup.republish()
 	// Startup done: every child bound its port, so the next run's probe
 	// sees them; free the port-claim lock for the rest of the lifetime.
 	if lock != nil {
 		lock.release()
 	}
-	endpoints := make([]loopEndpoint, len(loops))
-	for i, l := range loops {
-		endpoints[i] = loopEndpoint{
-			Repo:     abs,
-			RepoName: repoName(abs),
-			Loop:     l.name,
-			Port:     loopPorts[i],
-			DBPath:   dbPathFor(abs, l.file),
-		}
-	}
-	if err := writeRegistry(abs, endpoints); err != nil {
-		fmt.Fprintln(os.Stderr, "sortie-loop: registry:", err)
-	}
 	// dashPort is negative when this run joins a live unite dashboard:
 	// its loops register above, and the existing page picks them up.
 	if !noDashboard && dashPort > 0 {
-		serveDashboard(dashPort, unite, endpoints)
+		serveDashboard(dashPort, unite, sup)
 	} else if dashPort < 0 {
 		fmt.Printf("dashboard http://127.0.0.1:%d (unite: all repos)\n", -dashPort)
 	}
-	for _, p := range procs {
-		go func(c *exec.Cmd) {
-			if err := c.Wait(); err != nil {
-				fmt.Fprintln(os.Stderr, "sortie-loop:", err)
-			}
-			_ = syscall.Kill(0, syscall.SIGTERM)
-			os.Exit(1)
-		}(p)
-	}
-	select {}
+	// Ordered rather than deferred: os.Exit skips defers, and the
+	// registry entry and the children both have to be cleaned up on the
+	// way out whatever ends the run.
+	code := sup.run()
+	sup.shutdown()
+	dropRegistry(abs)
+	os.Exit(code)
 }
 
 func fatal(err error) {
