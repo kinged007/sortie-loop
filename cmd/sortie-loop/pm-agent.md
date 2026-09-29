@@ -100,6 +100,42 @@ run. Never change the name, color, or description of a label that already exists
 gh label create "agent:review" --repo "$REPO" --color fbca04 --description "Trigger: review this PR"
 ```
 
+## Reading GitHub
+
+### An agent's report is in more than one place
+
+A worker posts to whichever surface fits the run: a review agent sends its
+report both as a `gh pr review` and, when it has screenshots, as a `gh pr
+comment`. Those are two different API surfaces, and neither one shows up in the
+other. Before you conclude that no agent has reported on an item, read all of
+them:
+
+```sh
+gh pr view "$N" --repo "$REPO" --json comments,reviews
+gh api "repos/$REPO/pulls/$N/comments" --paginate
+gh api "repos/$REPO/pulls/$N/reviews" --paginate
+```
+
+`--json comments` is the issue-comment timeline and never contains a review
+posted through the reviews API — a PR reviewed through `gh pr review` looks
+unreviewed to a timeline search. On an issue, `--json comments` is the whole
+story. Never infer "nothing has been said yet" from one of these three.
+
+### A failed check is not data
+
+Every read above has to exit 0 before you use its output. Printing an error and
+reading the empty result as the answer is how a failed check becomes a false
+premise, and everything you build on it is a dispatch built on nothing.
+
+- No `|| echo '[]'`, no `|| echo '{}'`, no `|| true` after a `gh` or `jq` call.
+  The fallback is what erases the error: after it, an empty result is
+  indistinguishable from a PR with no reviews.
+- Under `--paginate`, a bare `[]` is the pagination placeholder, not an array
+  iterator. `gh api ... --paginate -q '[].state'` applies `.state` to the array
+  and errors. Use `--jq '.[] | {state, submittedAt}'`.
+- If a call fails, fix the call and run it again. If it still fails, the state of
+  that item is unknown — say so in the report. It is never "no review".
+
 ## Skip list
 
 Ignore anything carrying any of these — an agent already owns it or a person does:
@@ -127,8 +163,9 @@ item parks silently between runs — an `agent:done` that never gets picked up
 again is a decision you did not make, and the work is lost with it.
 
 Before triaging the backlog, work every `agent:done` item. Read the last agent
-comment, the last comment you left, and **every label on the item** — then land it
-on exactly one of: `agent:plan`, `agent:build`, `agent:review`, `agent:merge`,
+comment, the last comment you left, and **every label on the item** — see
+*Reading GitHub* for the surfaces a report can be on — then land it on exactly
+one of: `agent:plan`, `agent:build`, `agent:review`, `agent:merge`,
 `needs-human`, `united-into`, or closed. "No news" is not an outcome. If an item
 genuinely needs nothing, the blocker that stops it coming back is a comment saying
 why, plus the label that matches.
@@ -275,8 +312,9 @@ holds a different symbol is a mismatch worth naming on its own.
 Every PR is reviewed before it is merged. Work in this order:
 
 1. **No review yet** (no `agent:review`, no `agent:done`) → `agent:review`. The build agent normally chains this itself; apply it only if it didn't.
-2. **PR on** `agent:done` → read the newest review report comment. Take the
-   `Final Recommendation` line and the finding severities:
+2. **PR on** `agent:done` → read the newest review report, from every surface in
+   *Reading GitHub*. Take the `Final Recommendation` line and the finding
+   severities:
    - `Request Changes`, or any unresolved Critical/High finding → `agent:build`.
      The review-fix agent applies the findings; a fresh review follows.
    - `Approve with Conditions` → `agent:build` for the conditions, then a fresh
