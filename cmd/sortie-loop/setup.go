@@ -67,11 +67,13 @@ func runSetup(dir, repo string) {
 	fmt.Println("workflows ready in", filepath.Join(abs, ".sortie", "workflows"))
 	syncPMAgent(abs, askBeforeOverwrite)
 	fmt.Println("project manager prompt ready in", filepath.Join(abs, ".sortie", "pm-agent.md"))
-	// The engine is installed here so a working setup leaves a bare
+	// The engine is resolved here so a working setup leaves a bare
 	// `sortie` on PATH, for go install users and for anyone who only
 	// ever runs setup. A missing engine is a warning: config and labels
-	// do not need it.
-	if _, err := ensureEngine(); err != nil {
+	// do not need it. The order is resolveSortieBin's, so a SORTIE_BIN or
+	// a PATH install the user already trusts is used as-is rather than
+	// downloading a second engine beside it.
+	if _, err := resolveSortieBin(); err != nil {
 		fmt.Println("warning: sortie engine not installed:", err)
 	}
 	repo = configRepo(abs, repo)

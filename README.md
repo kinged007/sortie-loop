@@ -395,6 +395,12 @@ yours is older.
   re-run `setup` to take the shipped version.
 - **Windows is unsupported.** The engine releases a `.zip`; the
   installer reads `tar.gz`.
+- **The default engine install is unavailable.** The fork's two releases
+  each publish a single bare `sortie-linux-amd64` with no
+  `checksums.txt`, so there is nothing to verify and no build for macOS or
+  arm64. `setup` says so and names the two ways around it: `SORTIE_BIN`
+  for a binary you built, or `SORTIE_ENGINE_URL` with
+  `SORTIE_ENGINE_SHA256` for a verified archive.
 
 ## Customizing agents and workflows
 
@@ -432,7 +438,10 @@ Sortie upstream references:
   loop's query filter, but the github-pr adapter parses only `label:` /
   `assignee:` / `-label:` clauses. Until it parses it, milestone scoping
   does not filter PR loops.
-- Re-sync the engine fork with `sortie-ai/sortie`. The fork is behind
-  upstream and carries the `pi` adapter and `github-pr` tracker; what it
-  is missing and what re-syncing costs should be recorded as issues
-  before the first public release.
+- **Cut a proper GoReleaser release from this fork.** Neither fork
+  release is installable: both publish one bare `sortie-linux-amd64` with
+  no `checksums.txt` and no other platform, so `sortie-loop` cannot
+  verify or fetch an engine for macOS, or for any arm64 machine. Until
+  that exists, a working engine means `SORTIE_BIN` or
+  `SORTIE_ENGINE_URL` plus `SORTIE_ENGINE_SHA256`. Tracked as an issue on
+  the fork.
