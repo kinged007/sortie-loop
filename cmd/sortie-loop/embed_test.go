@@ -1,6 +1,10 @@
 package main
 
 import (
+	"archive/tar"
+	"bytes"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -169,7 +173,10 @@ func TestEnsureGitignoreIgnoresSortieWholesale(t *testing.T) {
 // passed in so the test never reaches into the real home directory.
 func TestLinkEngineAtReplacesStaleLink(t *testing.T) {
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "data", "sortie-loop")
+	// The cache location decides which links sortie-loop may refresh, so
+	// the test points the real one inside the temp dir.
+	t.Setenv("XDG_DATA_HOME", dir)
+	bin := engineDataDir()
 	src := filepath.Join(bin, "sortie-1.0.0")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
@@ -230,8 +237,197 @@ func TestLinkEngineAtLeavesForeignBinary(t *testing.T) {
 	}
 }
 
-// The engine is linked into the sortie-loop directory when that is on
-// PATH, so one PATH entry covers both tools.
+// A symlink the user made is their choice even though a symlink is not
+// covered by the foreign-binary check above: it may point at a hand-built
+// engine from source.
+func TestLinkEngineAtLeavesUserSymlink(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dir)
+	src := filepath.Join(engineDataDir(), "sortie-1.0.0")
+	if err := os.MkdirAll(engineDataDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(src, []byte("engine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hand := filepath.Join(t.TempDir(), "my-sortie")
+	if err := os.WriteFile(hand, []byte("built by hand"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bindir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bindir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(bindir, "sortie")
+	if err := os.Symlink(hand, link); err != nil {
+		t.Fatal(err)
+	}
+	if got := linkEngineAt(src, bindir); got != "" {
+		t.Errorf("user's symlink replaced, returned %q", got)
+	}
+	if got, err := os.Readlink(link); err != nil || got != hand {
+		t.Errorf("readlink = %q, %v; want %q", got, err, hand)
+	}
+}
+
+// The engine must be the archive's top-level `sortie`. An entry that only
+// shares the basename is not it, so a tampered archive cannot smuggle a
+// binary in under a name the real release never contains.
+func TestCopyEngineEntryRejectsNestedPath(t *testing.T) {
+	// The hostile entry comes first: with a basename test it would win.
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, n := range []string{"docs/sortie", "../../sortie", "sortie"} {
+		body := n
+		if n == "sortie" {
+			body = "the real engine"
+		}
+		if err := tw.WriteHeader(&tar.Header{
+			Name: n, Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := copyEngineEntry(tar.NewReader(&buf), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "the real engine" {
+		t.Errorf("extracted %q, want the top-level engine", out.String())
+	}
+}
+
+// An archive with no top-level `sortie` is an error naming what was
+// missing, not a silent empty install.
+func TestCopyEngineEntryRequiresTopLevel(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.WriteHeader(&tar.Header{
+		Name: "bin/sortie", Mode: 0o755, Size: 2, Typeflag: tar.TypeReg,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte("hi")); err != nil {
+		t.Fatal(err)
+	}
+	tw.Close()
+	var out bytes.Buffer
+	err := copyEngineEntry(tar.NewReader(&buf), &out)
+	if err == nil || !strings.Contains(err.Error(), engineBinary) {
+		t.Errorf("err = %v, want one naming %q", err, engineBinary)
+	}
+}
+
+// SORTIE_BIN wins over every other source. setup resolves the engine the
+// same way the run path does, so a user who set it keeps their own binary
+// instead of having a second engine downloaded and linked beside it.
+func TestResolveSortieBinPrefersEnv(t *testing.T) {
+	mine := filepath.Join(t.TempDir(), "sortie")
+	if err := os.WriteFile(mine, []byte("mine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SORTIE_BIN", mine)
+	// Any download attempt fails loudly instead of falling through.
+	orig := releaseBase
+	releaseBase = func(_, _ string) string { return "http://127.0.0.1:1/none" }
+	defer func() { releaseBase = orig }()
+
+	got, err := resolveSortieBin()
+	if err != nil {
+		t.Fatalf("resolveSortieBin: %v", err)
+	}
+	if got != mine {
+		t.Errorf("got %q, want %q", got, mine)
+	}
+}
+
+// setup must resolve the engine the same way the run path does. It called
+// ensureEngine directly, so a user who set SORTIE_BIN had a second engine
+// downloaded and linked onto PATH beside the one they chose.
+func TestSetupHonoursSortieBin(t *testing.T) {
+	mine := filepath.Join(t.TempDir(), "sortie")
+	if err := os.WriteFile(mine, []byte("mine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SORTIE_BIN", mine)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	// A download would reach for this and fail.
+	orig := releaseBase
+	releaseBase = func(_, _ string) string { return "http://127.0.0.1:1/none" }
+	defer func() { releaseBase = orig }()
+
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() {
+		// setup continues into label sync, which needs gh and a token and
+		// will fatal. The engine step runs before that, which is all this
+		// is checking, so the failure past it is expected.
+		defer func() { recover() }()
+		runSetup(repo, "owner/name")
+	})
+	if strings.Contains(out, "engine not installed") {
+		t.Errorf("setup downloaded an engine despite SORTIE_BIN:\n%s", out)
+	}
+}
+
+// captureStdout runs fn with os.Stdout redirected to a pipe and returns
+// what it printed.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	done := make(chan string, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		done <- string(b)
+	}()
+	fn()
+	os.Stdout = old
+	w.Close()
+	s := <-done
+	r.Close()
+	return s
+}
+
+// A release published by hand has no checksums.txt, so the error names the
+// missing asset layout rather than leaving a bare 404 to interpret.
+func TestEngineReleaseHintExplainsMissingChecksums(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	_, err := ensureEngine()
+	if err == nil {
+		t.Skip("an engine is installed; nothing to explain")
+	}
+	if !strings.Contains(err.Error(), "checksums.txt") {
+		t.Errorf("err does not name the missing file: %v", err)
+	}
+	if !strings.Contains(err.Error(), "SORTIE_ENGINE_URL") {
+		t.Errorf("err offers no way forward: %v", err)
+	}
+	if !strings.Contains(err.Error(), engineRepo()) {
+		t.Errorf("err does not name the repo: %v", err)
+	}
+}
+
+// A network failure is not a release-shape problem and must not get the
+// hint attached.
+func TestEngineReleaseHintIgnoresOtherErrors(t *testing.T) {
+	if got := engineReleaseHint(errors.New("fetch https://example.invalid/x: dial tcp: no such host")); got != "" {
+		t.Errorf("hint = %q, want empty for a network error", got)
+	}
+}
+
 func TestEngineBindirPrefersLoopDirOnPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

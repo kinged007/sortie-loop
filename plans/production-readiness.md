@@ -250,9 +250,16 @@ hits that.
 
 ## Still open
 
-- **Open issues for the upstream divergence.** The fork is behind
-  `sortie-ai/sortie`; record what it is missing, what re-syncing costs,
-  and which upstream changes the adapters depend on. Not started.
+- **Open issues for the upstream divergence.** `kinged007/sortie` is 18
+  commits ahead of `sortie-ai/sortie` main and 0 behind, so it is a
+  superset rather than a stale fork; what it is missing is release
+  packaging, not source. Tracked as an issue on the fork.
+- **The fork has no installable release.** Both fork releases publish one
+  bare `sortie-linux-amd64` with no `checksums.txt` and no build for
+  darwin or arm64, so `ensureEngine` cannot install the pinned default.
+  The resolver stays strict — an unverified 29 MB binary is not a trade
+  worth making — and `engineReleaseHint` turns the 404 into the two
+  workarounds. Fixed by a GoReleaser release from the fork.
 - **Repository metadata.** Description, homepage and topics are empty,
   and the repository is still private. Metadata is a `gh repo edit` away;
   going public is a decision, not a task.

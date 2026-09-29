@@ -95,7 +95,7 @@ var releaseBase = func(repo, version string) string {
 func ensureEngine() (string, error) {
 	bin, err := fetchEngine()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w%s", err, engineReleaseHint(err))
 	}
 	linkEngineOnPath(bin)
 	return bin, nil
@@ -142,6 +142,27 @@ func downloadEngine(version string) (string, error) {
 		fmt.Fprintln(os.Stderr, "sortie-loop: warning: SORTIE_ENGINE_URL is set without SORTIE_ENGINE_SHA256; this download is unverified")
 	}
 	return fetchVerified(url, want)
+}
+
+// engineReleaseHint turns a missing checksums.txt into something the user
+// can act on. A release published by hand — one bare binary named
+// sortie-linux-amd64 and nothing else — is the shape the fork currently
+// has, and "404 Not Found" alone sends people looking for a network
+// problem that is not there.
+func engineReleaseHint(err error) string {
+	repo, version := engineRepo(), engineVersion()
+	if !strings.Contains(err.Error(), "checksums.txt") {
+		return ""
+	}
+	asset, aerr := engineAssetName(runtime.GOOS, runtime.GOARCH, version)
+	if aerr != nil {
+		asset = "sortie_" + version + "_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"
+	}
+	return fmt.Sprintf(`; %s release %s has no checksums.txt, so its engine cannot be verified.
+  It needs %s and checksums.txt, which a GoReleaser release produces.
+  Meanwhile: build the engine from source and point SORTIE_BIN at it, or set
+  SORTIE_ENGINE_URL and SORTIE_ENGINE_SHA256 to fetch a verified archive.`,
+		repo, version, asset)
 }
 
 // releaseChecksum reads one asset's sha256 out of a release's
@@ -258,7 +279,11 @@ func copyEngineEntry(tr *tar.Reader, w io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("read archive: %w", err)
 		}
-		if hdr.Typeflag != tar.TypeReg || filepath.Base(hdr.Name) != engineBinary {
+		// The engine must be the archive's top-level `sortie`, matched
+		// exactly. A basename test would also accept `docs/sortie` or
+		// `../../sortie`, so a tampered archive could win the match on an
+		// entry the real release never contains.
+		if hdr.Typeflag != tar.TypeReg || hdr.Name != engineBinary {
 			continue
 		}
 		if hdr.Size > maxEngineBytes {
@@ -294,6 +319,13 @@ func linkEngineAt(src, dir string) string {
 	if cur, err := os.Readlink(link); err == nil {
 		if cur == src {
 			return link
+		}
+		// Only a link into our own cache is ours to refresh. A link
+		// anywhere else is the user's, and replacing it silently would
+		// break a hand-built engine they point it at.
+		if !strings.HasPrefix(cur, engineDataDir()+string(filepath.Separator)) {
+			fmt.Fprintf(os.Stderr, "sortie-loop: warning: %s points at %s, which sortie-loop did not install; left alone (the engine runs from %s)\n", link, cur, src)
+			return ""
 		}
 	} else if _, err := os.Lstat(link); err == nil {
 		fmt.Fprintf(os.Stderr, "sortie-loop: warning: %s exists and was not installed by sortie-loop; left alone (the engine runs from %s)\n", link, src)
