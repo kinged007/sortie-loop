@@ -1,0 +1,61 @@
+# Release config for sortie-loop. The asset layout must match what
+# install.sh expects: sortie-loop_<version>_<os>_<arch>.tar.gz alongside
+# checksums.txt, served from the tag.
+version: 2
+
+project_name: sortie-loop
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: sortie-loop
+    main: ./cmd/sortie-loop
+    binary: sortie-loop
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - >-
+        -s -w
+        -X main.version={{ .Version }}
+    flags:
+      - -trimpath
+    tags:
+      - osusergo
+      - netgo
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+sboms:
+  - artifacts: archive
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "(?i)^Merge (remote-tracking )?branch '"
+
+release:
+  github:
+    owner: kinged007
+    name: sortie-loop
+  name_template: "{{ .ProjectName }} {{ .Version }}"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"

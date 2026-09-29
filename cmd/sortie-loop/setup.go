@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,10 +12,11 @@ import (
 )
 
 // runSetup creates .sortie/config.yaml if missing, syncs labels via gh,
-// and ensures .gitignore covers the loop's local state.
-// The --repo flag value is a repo slug, never a directory.
-func runSetup(dir string) {
-	if f := detectRepoFlag(); f != "" && dir == f {
+// and ensures .gitignore covers the loop's local state. dir is the repo
+// root, empty for the current directory; repo is the --repo value, a repo
+// slug and never a directory.
+func runSetup(dir, repo string) {
+	if dir == "" {
 		dir = "."
 	}
 	abs, err := filepath.Abs(dir)
@@ -29,7 +31,6 @@ func runSetup(dir string) {
 	}
 	cfgPath := filepath.Join(abs, ".sortie", "config.yaml")
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-		repo := detectRepoFlag()
 		if repo == "" {
 			repo = guessRepo(abs)
 		}
@@ -66,17 +67,38 @@ func runSetup(dir string) {
 	fmt.Println("workflows ready in", filepath.Join(abs, ".sortie", "workflows"))
 	syncPMAgent(abs, askBeforeOverwrite)
 	fmt.Println("project manager prompt ready in", filepath.Join(abs, ".sortie", "pm-agent.md"))
-	ensureSortieLink()
-	repo := configRepo(abs)
+	// The engine is installed here so a working setup leaves a bare
+	// `sortie` on PATH, for go install users and for anyone who only
+	// ever runs setup. A missing engine is a warning: config and labels
+	// do not need it.
+	if _, err := ensureEngine(); err != nil {
+		fmt.Println("warning: sortie engine not installed:", err)
+	}
+	repo = configRepo(abs, repo)
 	ensureGitignore(abs)
 	// Labels come from the config file so custom loops can add their own:
 	// list entries under `labels:`, re-run setup, and they are created.
 	// Sync is additive — labels absent from the list are left alone.
+	// An existing label whose colour or description differs is a hand
+	// edit, so it is confirmed before being overwritten, the same as a
+	// workflow file.
 	cfg, err := config.Load(abs)
 	if err != nil {
 		fatal(err)
 	}
 	for _, l := range cfg.Labels {
+		cur, err := labelOn(repo, l.Name)
+		if err != nil {
+			fatal(fmt.Errorf("read label %s: %w", l.Name, err))
+		}
+		if cur != nil {
+			if cur.color == l.Color && cur.description == l.Description {
+				continue
+			}
+			if !confirmOverwrite(fmt.Sprintf("label %s (colour %s, description %q)", l.Name, cur.color, cur.description)) {
+				continue
+			}
+		}
 		create := exec.Command("gh", "label", "create", l.Name, "--repo", repo,
 			"--color", l.Color, "--description", l.Description)
 		if _, err := create.CombinedOutput(); err != nil {
@@ -88,6 +110,36 @@ func runSetup(dir string) {
 		}
 	}
 	fmt.Println("labels synced to", repo)
+}
+
+// existingLabel is a label as GitHub currently has it.
+type existingLabel struct {
+	color       string
+	description string
+}
+
+// labelOn reads a label, returning nil when it does not exist.
+func labelOn(repo, name string) (*existingLabel, error) {
+	out, err := exec.Command("gh", "label", "list", "--repo", repo,
+		"--search", name, "--limit", "100", "--json", "name,color,description").Output()
+	if err != nil {
+		return nil, err
+	}
+	var labels []struct {
+		Name        string `json:"name"`
+		Color       string `json:"color"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(out, &labels); err != nil {
+		return nil, err
+	}
+	// gh --search is a substring match, so an exact name check follows.
+	for _, l := range labels {
+		if l.Name == name {
+			return &existingLabel{color: l.Color, description: l.Description}, nil
+		}
+	}
+	return nil, nil
 }
 
 // oldGitignoreEntries is the granular scheme setup wrote before ignoring

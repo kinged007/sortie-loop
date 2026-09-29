@@ -260,15 +260,23 @@ func TestSortieValidate(t *testing.T) {
 
 // sortieBin returns a validator binary, preferring the fork build: the stock
 // engine has neither the github-pr tracker nor the pi adapter, so it rejects
-// every shipped workflow.
+// every shipped workflow. A fork installed normally is linked as a plain
+// `sortie`, so that is checked too; without it this test never runs on an
+// installed machine.
 func sortieBin() string {
 	candidates := []string{os.Getenv("SORTIE_BIN"), "/tmp/gobin/sortie-fork"}
 	if home := os.Getenv("HOME"); home != "" {
-		candidates = append(candidates, filepath.Join(home, ".local", "bin", "sortie-fork"))
+		candidates = append(candidates,
+			filepath.Join(home, ".local", "bin", "sortie-fork"),
+			filepath.Join(home, ".local", "bin", "sortie"),
+		)
+	}
+	if p, err := exec.LookPath("sortie"); err == nil {
+		candidates = append(candidates, p)
 	}
 	for _, p := range candidates {
 		if p != "" {
-			if _, err := os.Stat(p); err == nil {
+			if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0 {
 				return p
 			}
 		}

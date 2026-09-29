@@ -16,8 +16,8 @@ func TestNormalizeRepo(t *testing.T) {
 		"owner/name/":                             "owner/name",
 	}
 	for in, want := range cases {
-		if got := normalizeRepo(in); got != want {
-			t.Errorf("normalizeRepo(%q) = %q, want %q", in, got, want)
+		if got := NormalizeRepo(in); got != want {
+			t.Errorf("NormalizeRepo(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

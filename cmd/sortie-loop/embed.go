@@ -75,7 +75,7 @@ func writeWorkflow(fsys fs.FS, dest, src string, policy writePolicy) {
 		if string(cur) == string(data) {
 			return
 		}
-		if policy == keepEdits || !confirmOverwrite(dest) {
+		if policy == keepEdits || !confirmOverwrite(displayPath(dest)) {
 			return
 		}
 	}
@@ -87,15 +87,13 @@ func writeWorkflow(fsys fs.FS, dest, src string, policy writePolicy) {
 	}
 }
 
-// confirmOverwrite asks before replacing a hand-edited file. Only an
-// explicit yes proceeds, so a closed, piped, or non-interactive stdin
-// declines instead of guessing.
-func confirmOverwrite(dest string) bool {
-	shown := dest
-	if rel, err := filepath.Rel(".", dest); err == nil {
-		shown = rel
-	}
-	fmt.Printf("  %s differs from the shipped copy. Overwrite? [y/N] ", shown)
+// confirmOverwrite asks before replacing something a person may have
+// changed: a hand-edited workflow file, or an existing label whose colour
+// or description differs. what is the text to show. Only an explicit yes
+// proceeds, so a closed, piped, or non-interactive stdin declines instead
+// of guessing.
+func confirmOverwrite(what string) bool {
+	fmt.Printf("  %s differs from what sortie-loop ships. Overwrite? [y/N] ", what)
 	if promptIn == nil {
 		promptIn = bufio.NewReader(os.Stdin)
 	}
@@ -107,8 +105,17 @@ func confirmOverwrite(dest string) bool {
 	case "y", "yes":
 		return true
 	}
-	fmt.Printf("  kept %s — delete it and re-run setup to take the shipped copy\n", shown)
+	fmt.Printf("  kept %s — delete it and re-run setup to take the shipped version\n", what)
 	return false
+}
+
+// displayPath shortens a path for a prompt, preferring a path relative to
+// the current directory over a long absolute one.
+func displayPath(dest string) string {
+	if rel, err := filepath.Rel(".", dest); err == nil && !strings.HasPrefix(rel, "..") {
+		return rel
+	}
+	return dest
 }
 
 // workflowPath returns the repo-local workflow file, filling gaps from the
