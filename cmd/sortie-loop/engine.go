@@ -270,6 +270,25 @@ func extractEngine(archivePath, dest string) error {
 // copyEngineEntry finds the engine in the archive and copies it to w.
 // Reading stops at the first match, so the licence and readme entries
 // that share the archive are never decompressed.
+// engineEntry reports whether a tar header names the engine binary.
+// GoReleaser produces two shapes depending on its archive config: a flat
+// archive with `sortie` at the root, and one wrapped in a per-platform
+// directory (`linux_amd64/sortie`). Both are accepted. A deeper path or
+// a traversal segment is not, so a tampered archive cannot reach the
+// match through `../../sortie` or `a/b/sortie`.
+//
+// The archive is already digest-verified before it gets here, so this
+// locates the file rather than establishing trust; it does not need to be
+// strict enough to reject every name a real release would never use.
+func engineEntry(name string) bool {
+	if name == engineBinary {
+		return true
+	}
+	dir, file, ok := strings.Cut(name, "/")
+	return ok && file == engineBinary && dir != "" && dir != "." && dir != ".." &&
+		!strings.ContainsAny(dir, `/\`)
+}
+
 func copyEngineEntry(tr *tar.Reader, w io.Writer) error {
 	for {
 		hdr, err := tr.Next()
@@ -279,11 +298,7 @@ func copyEngineEntry(tr *tar.Reader, w io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("read archive: %w", err)
 		}
-		// The engine must be the archive's top-level `sortie`, matched
-		// exactly. A basename test would also accept `docs/sortie` or
-		// `../../sortie`, so a tampered archive could win the match on an
-		// entry the real release never contains.
-		if hdr.Typeflag != tar.TypeReg || hdr.Name != engineBinary {
+		if hdr.Typeflag != tar.TypeReg || !engineEntry(hdr.Name) {
 			continue
 		}
 		if hdr.Size > maxEngineBytes {

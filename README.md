@@ -382,11 +382,6 @@ yours is older.
 
 ## Known limitations
 
-- **Milestone scoping does not filter pull requests.** `milestone:` in
-  `.sortie/config.yaml` is appended to every loop's query filter, but the
-  engine's `github-pr` adapter parses only `label:`, `assignee:` and
-  `-label:` clauses, so the milestone clause is ignored on the `review`,
-  `review-fix` and `merge` loops. Issue loops honour it.
 - **One crashed loop stops the run.** A loop process exiting ends
   `sortie-loop`, as a signal does. The remaining loops are stopped
   cleanly and the registry entry is dropped, but nothing restarts them.
@@ -395,12 +390,6 @@ yours is older.
   re-run `setup` to take the shipped version.
 - **Windows is unsupported.** The engine releases a `.zip`; the
   installer reads `tar.gz`.
-- **The default engine install is unavailable.** The fork's two releases
-  each publish a single bare `sortie-linux-amd64` with no
-  `checksums.txt`, so there is nothing to verify and no build for macOS or
-  arm64. `setup` says so and names the two ways around it: `SORTIE_BIN`
-  for a binary you built, or `SORTIE_ENGINE_URL` with
-  `SORTIE_ENGINE_SHA256` for a verified archive.
 
 ## Customizing agents and workflows
 
@@ -432,16 +421,11 @@ Sortie upstream references:
 
 ## Roadmap
 
-- Enforce `milestone:` on the `github-pr` tracker path, which
-  [Known limitations](#known-limitations) records as the one open
-  correctness gap. Config already appends `milestone:"..."` to every
-  loop's query filter, but the github-pr adapter parses only `label:` /
-  `assignee:` / `-label:` clauses. Until it parses it, milestone scoping
-  does not filter PR loops.
-- **Cut a proper GoReleaser release from this fork.** Neither fork
-  release is installable: both publish one bare `sortie-linux-amd64` with
-  no `checksums.txt` and no other platform, so `sortie-loop` cannot
-  verify or fetch an engine for macOS, or for any arm64 machine. Until
-  that exists, a working engine means `SORTIE_BIN` or
-  `SORTIE_ENGINE_URL` plus `SORTIE_ENGINE_SHA256`. Tracked as an issue on
-  the fork.
+- Re-sync the engine fork periodically. `kinged007/sortie` is a superset
+  of `sortie-ai/sortie` today — 18 commits ahead, 0 behind — but nothing
+  merges upstream into it, so the two will drift.
+- Restart a loop that exits instead of ending the run. Currently one
+  crashed loop stops every other loop; see
+  [Known limitations](#known-limitations).
+- Stamp workflow files with the binary version that wrote them, so an
+  upgrade can offer a new version of a file the user has not edited.
