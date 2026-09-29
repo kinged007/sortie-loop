@@ -36,6 +36,20 @@ jobs:
             v*) ;;
             *) echo "tag must start with v, got $tag"; exit 1 ;;
           esac
+          # install.sh derives the asset name from the version, so a tag
+          # that does not match the module path silently produces assets
+          # nobody can install.
+          mod=$(go list -m)
+          case "$mod" in
+            github.com/*) ;;
+            *) echo "unexpected module path: $mod"; exit 1 ;;
+          esac
+
+      # GoReleaser's sboms: step shells out to syft, which the runner does
+      # not have. Without this the release fails at the last step, after
+      # the build and checksum work has already been done.
+      - name: install syft
+        run: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
 
       - uses: goreleaser/goreleaser-action@v6
         with:

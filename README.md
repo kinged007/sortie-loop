@@ -176,8 +176,9 @@ curl -sSL https://raw.githubusercontent.com/kinged007/sortie-loop/main/install.s
 
 That downloads a release binary to `~/.local/bin/sortie-loop` and checks
 it against the release's `checksums.txt`. No Go toolchain needed.
-`./install.sh --prefix DIR` installs elsewhere, `--version TAG` pins a
-release, and `--from-source` builds from a checkout.
+`./install.sh --prefix DIR` installs to `DIR/bin/sortie-loop` instead,
+`--version TAG` pins a release, and `--from-source` builds from a
+checkout.
 
 Already have Go?
 
